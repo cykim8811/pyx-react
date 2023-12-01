@@ -1,0 +1,8 @@
+bidict==0.22.1
+h11==0.14.0
+netifaces==0.10.6
+python-engineio==4.8.0
+python-socketio==5.10.0
+simple-websocket==1.0.0
+tornado @ file:///croot/tornado_1696936946304/work
+wsproto==1.2.0

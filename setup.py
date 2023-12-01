@@ -9,6 +9,7 @@ setup(
     url='https://github.com/cykim8811/pyx-react',
     packages=find_packages(where='src'),
     install_requires=[],
+    keywords=['pyx', 'react', 'python', 'visualization', 'web'],
     package_dir = {'': 'src'},
     package_data={'pyx': ['assets/*']},
 )

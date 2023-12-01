@@ -3,3 +3,7 @@
 src/pyx/assets/pyx.js
 tests/public/index.html
 tests/public/pyx.js
+tests/public/favicon.ico
+build/
+dist/
+
