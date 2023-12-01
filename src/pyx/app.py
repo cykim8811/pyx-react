@@ -7,10 +7,6 @@ import tornado.web
 import tornado.ioloop
 import tornado.gen
 
-class IndexHandler(tornado.web.RequestHandler):
-    def get(self):
-        self.render("assets/index.html")
-
 class PyXApp:
     def __init__(self, component):
         self.component = component
@@ -29,7 +25,7 @@ class PyXApp:
             os.system(f"cp -r {module_dir}/assets/* {running_dir}/public/")
 
         # Add routes
-        self.server.add_route(r"/", IndexHandler)
+        self.server.add_static(r"/()", running_dir + "/public/index.html")
         self.server.add_static(r"/public/(.*)", running_dir + "/public")
 
     def run(self, host=None, port=None, verbose=True):
