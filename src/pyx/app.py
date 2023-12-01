@@ -22,11 +22,14 @@ class PyXApp:
         if not os.path.isdir(running_dir + "/public"):
             os.mkdir(running_dir + "/public")
         if not os.path.isfile(running_dir + "/public/index.html"):
-            os.system(f"cp -r {module_dir}/assets/* {running_dir}/public/")
+            os.system(f"cp {module_dir}/assets/index.html {running_dir}/public/index.html")
+        if not os.path.isfile(running_dir + "/public/favicon.ico"):
+            os.system(f"cp {module_dir}/assets/favicon.ico {running_dir}/public/favicon.ico")
 
         # Add routes
-        self.server.add_static(r"/()", running_dir + "/public/index.html")
-        self.server.add_static(r"/public/(.*)", running_dir + "/public")
+        self.server.add_single_file_handler("/favicon.ico", running_dir + "/public/favicon.ico")
+        self.server.add_single_file_handler("/", running_dir + "/public/index.html")
+        self.server.add_static_file_handler(r"/public/(.*)", running_dir + "/public")
 
     def run(self, host=None, port=None, verbose=True):
         self.server.run(host, port, verbose=verbose)

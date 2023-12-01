@@ -48,7 +48,14 @@ class PyXResponseManager:
 
     def add_handler(self, name, handler):
         self.handlers[name] = handler
-    
+
+class SingleFileHandler(tornado.web.StaticFileHandler):
+    def initialize(self, path):
+        self.dirname, self.filename = os.path.split(path)
+        super().initialize(self.dirname)
+
+    def get(self, path=None, include_body=True):
+        return super().get(self.filename, include_body)
 
 class PyXServer:
     def __init__(self):
@@ -67,8 +74,11 @@ class PyXServer:
     def add_route(self, route, handler):
         self.routes.append((route, handler))
 
-    def add_static(self, route, path):
+    def add_static_file_handler(self, route, path):
         self.routes.append((route, tornado.web.StaticFileHandler, {"path": path}))
+
+    def add_single_file_handler(self, route, path):
+        self.routes.append((route, SingleFileHandler, {"path": path}))
 
     def event(self, func):
         self.__check_event_name(func.__name__)
