@@ -1,6 +1,6 @@
 
-from .server import PyXServer
-from .app import PyXApp
+from .server import Server
+from .app import App
 
-__all__ = ['PyXServer', 'PyXApp']
+__all__ = ['Server', 'App']
 __version__ = '0.1.0-alpha.0'

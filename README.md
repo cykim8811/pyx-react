@@ -57,7 +57,7 @@ class Counter:
 #        )
 
 
-app = pyx.PyXApp(Counter())
+app = App(Counter())
 app.run(host='0.0.0.0', port=8080)
 
 

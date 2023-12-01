@@ -9,7 +9,7 @@ import os
 import random
 
 # Handle requests to client
-class PyXRequestManager:
+class RequestManager:
     def __init__(self, sio):
         self.requests = {}
         self.sio = sio
@@ -31,7 +31,7 @@ class PyXRequestManager:
 
 
 # Handle requests from client
-class PyXResponseManager:
+class ResponseManager:
     def __init__(self, sio):
         self.handlers = {}
         @sio.event
@@ -57,15 +57,15 @@ class SingleFileHandler(tornado.web.StaticFileHandler):
     def get(self, path=None, include_body=True):
         return super().get(self.filename, include_body)
 
-class PyXServer:
+class Server:
     def __init__(self):
         self.sio = socketio.AsyncServer(async_mode='tornado')
         
         self.routes = []
         self.routes.append((r"/socket.io/", socketio.get_tornado_handler(self.sio)))
 
-        self.request_manager = PyXRequestManager(self.sio)
-        self.response_manager = PyXResponseManager(self.sio)
+        self.request_manager = RequestManager(self.sio)
+        self.response_manager = ResponseManager(self.sio)
 
     def __check_event_name(self, name):
         if name in ['response', 'request']:

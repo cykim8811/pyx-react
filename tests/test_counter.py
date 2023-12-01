@@ -1,5 +1,5 @@
 
-from pyx import createElement, PyXApp
+from pyx import createElement, App
 
 class Counter:
     def __init__(self):
@@ -14,7 +14,7 @@ class Counter:
             createElement('p', {}, f'Count: {self.count}')
         )
 
-app = PyXApp(Counter())
+app = App(Counter())
 
 app.run()
 

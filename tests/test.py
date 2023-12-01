@@ -1,7 +1,7 @@
 
 import pyx
 
-app = pyx.PyXApp(None)
+app = pyx.App(None)
 
 app.run('0.0.0.0')
 

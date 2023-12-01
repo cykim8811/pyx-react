@@ -1,16 +1,16 @@
 
 import sys
 import os
-from .server import PyXServer
+from .server import Server
 
 import tornado.web
 import tornado.ioloop
 import tornado.gen
 
-class PyXApp:
+class App:
     def __init__(self, component):
         self.component = component
-        self.server = PyXServer()
+        self.server = Server()
         self.__init_server()
     
     def __init_server(self):
