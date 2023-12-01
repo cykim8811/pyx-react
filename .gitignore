@@ -1,0 +1,5 @@
+*.egg-info/
+*.pyc
+src/pyx/assets/pyx.js
+tests/public/index.html
+tests/public/pyx.js
