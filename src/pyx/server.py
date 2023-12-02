@@ -91,8 +91,8 @@ class Server:
     async def request(self, name, data):
         return await self.request_manager.request(name, data)
     
-    def emit(self, name, data):
-        return self.sio.emit(name, data)
+    def emit(self, name, data, room=None):
+        return self.sio.emit(name, data, room=room)
     
     def spawn(self, func, *args, **kwargs):
         tornado.ioloop.IOLoop.current().spawn_callback(func, *args, **kwargs)
