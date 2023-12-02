@@ -6,7 +6,7 @@ import tornado.web
 import tornado.ioloop
 import tornado.gen
 
-from .hashID import hashObj
+from .utils.hashID import hashObj
 from .server import Server
 
 
@@ -20,10 +20,10 @@ class SetterListener:
         if renderableClass not in self.handlers:
             self.handlers[renderableClass] = set()
             old_setattr = renderableClass.__setattr__
-            def new_setattr(self, name, value):
-                old_setattr(self, name, value)
+            def new_setattr(target, name, value):
+                old_setattr(target, name, value)
                 for handler in self.handlers[renderableClass]:
-                    handler(self, name, value)
+                    handler(target, name, value)
             renderableClass.__setattr__ = new_setattr
             self.renderableClasses.add(renderableClass)
             self.old_setattrs[renderableClass] = old_setattr
@@ -96,7 +96,7 @@ class RenderableManager:
         self.renderables[renderableId].children = new_children
         for child in added_children:
             self.incrementRefCount(child)
-            total_result[hashObj(child)] = self.update(child)
+            total_result.update(self.update(child))
         for child in removed_children:
             self.decrementRefCount(child)
         return total_result
@@ -109,15 +109,15 @@ class RenderableManager:
     def __convert(self, element):
         if type(element) is dict and '__type__' not in element:
             return {
-                key: convert(value)
+                key: self.__convert(value)
                 for key, value in element.items()
             }
         elif type(element) is dict and element['__type__'] == 'element':
             return {
                 '__type__': 'element',
                 'tag': element['tag'],
-                'props': convert(element['props']),
-                'children': convert(element['children'])
+                'props': self.__convert(element['props']),
+                'children': self.__convert(element['children'])
             }
         elif hasattr(element, '__render__'):
             self.__new_children.add(element)
@@ -126,9 +126,9 @@ class RenderableManager:
                 'renderableId': hashObj(element)
             }
         elif type(element) is list:
-            return [convert(child) for child in element]
+            return [self.__convert(child) for child in element]
         elif type(element) is tuple:
-            return tuple(convert(child) for child in element)
+            return tuple(self.__convert(child) for child in element)
         elif type(element) in [str, int, float, bool]:
             return str(element)
         else:
@@ -138,21 +138,34 @@ class RenderableManager:
         renderableId = hashObj(renderable)
         if renderableId not in self.renderables: return
         if attrName not in self.renderables[renderableId].dependencies: return
-        # TODO: Send update to client
-        print("EMIT", self.update(renderable))
+        self.user.sendUpdate(renderable)
         
 
 class User:
-    def __init__(self, sid):
+    def __init__(self, sid, root, server):
         self.sid = sid
+        self.root = root
+        self.server = server
         self.renderableManager = RenderableManager(self)
+        self.server.spawn(self.emit, 'root_id', hashObj(root))
+        self.sendUpdate(self.root)
 
     def handleAttributeChange(self, renderable, attrName):
         self.renderableManager.handleAttributeChange(renderable, attrName)
+    
+    def emit(self, event, data):
+        return self.server.emit(event, data, room=self.sid)
+    
+    def sendUpdate(self, renderable, includeRoot=False):
+        async def sendToClient():
+            update = self.renderableManager.update(renderable)
+            await self.emit('renderable_update', update)
+        self.server.spawn(sendToClient)
 
 class App:
     def __init__(self, component):
         self.component = component
+        assert hasattr(component, '__render__'), 'Component must have __render__ method'
         self.server = Server()
         self.__init_server()
 
@@ -182,6 +195,7 @@ class App:
 
         # Add routes
         self.server.add_single_file_handler("/favicon.ico", running_dir + "/public/favicon.ico")
+        self.server.add_single_file_handler("/public/pyx.js", module_dir + "/assets/pyx.js")
         self.server.add_single_file_handler("/", running_dir + "/public/index.html")
         self.server.add_static_file_handler(r"/public/(.*)", running_dir + "/public")
     
@@ -189,7 +203,7 @@ class App:
         # Initialize user handlers
         @self.server.event
         def connect(sid, environ):
-            self.users[sid] = User(sid)
+            self.users[sid] = User(sid, self.component, self.server)
             self.onConnect(self.users[sid])
         
         @self.server.event

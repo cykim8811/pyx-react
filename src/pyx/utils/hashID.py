@@ -1,4 +1,6 @@
 
+import hashlib
+
 def base62(num):
     alphabet = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
     base = len(alphabet)
