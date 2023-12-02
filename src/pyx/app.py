@@ -10,6 +10,30 @@ from .hashID import hashObj
 from .server import Server
 
 
+class SetterListener:
+    def __init__(self):
+        self.renderableClasses = set()
+        self.handlers = {}
+        self.old_setattrs = {}
+    
+    def addHandler(self, renderableClass, handler):
+        if renderableClass not in self.handlers:
+            self.handlers[renderableClass] = set()
+            old_setattr = renderableClass.__setattr__
+            def new_setattr(self, name, value):
+                old_setattr(self, name, value)
+                for handler in self.handlers[renderableClass]:
+                    handler(self, name, value)
+            renderableClass.__setattr__ = new_setattr
+            self.renderableClasses.add(renderableClass)
+            self.old_setattrs[renderableClass] = old_setattr
+        self.handlers[renderableClass].add(handler)
+
+
+# Used to listen for changes in renderable classes
+setterListener = SetterListener()
+
+
 class RenderableContainer:
     def __init__(self, renderable):
         self.renderable = renderable
@@ -23,6 +47,13 @@ class RenderableManager:
         self.user = user
 
         self.__new_children = {}
+        self.__registered_renderable_classes = set()
+
+    def incrementRefCount(self, renderable):
+        renderableId = hashObj(renderable)
+        if renderableId not in self.renderables:
+            self.renderables[renderableId] = RenderableContainer(renderable)
+        self.renderables[renderableId].refCount += 1
     
     def decrementRefCount(self, renderable):
         renderableId = hashObj(renderable)
@@ -31,6 +62,14 @@ class RenderableManager:
             for child in self.renderables[renderableId].children:
                 self.decrementRefCount(child)
             del self.renderables[renderableId]
+    
+    def registerSetattrHandler(self, renderable):
+        renderableClass = renderable.__class__
+        if renderableClass in self.__registered_renderable_classes: return
+        self.__registered_renderable_classes.add(renderableClass)
+        def handler(renderable, attrName, attrValue):
+            self.handleAttributeChange(renderable, attrName, attrValue)
+        setterListener.addHandler(renderableClass, handler)
 
     def update(self, renderable):
         renderableId = hashObj(renderable)
@@ -44,21 +83,20 @@ class RenderableManager:
             return old_getattr(self, name)
         __renderable_class = renderable.__class__
         __renderable_class.__getattribute__ = new_getattr
+        
         render_result, new_children = self.convert(renderable.__render__(self.user))
         total_result = {
             renderableId: render_result
         }
         __renderable_class.__getattribute__ = old_getattr
+        self.registerSetattrHandler(renderable)
         self.renderables[renderableId].dependencies = used_attrs
         added_children = new_children - self.renderables[renderableId].children
         removed_children = self.renderables[renderableId].children - new_children
         self.renderables[renderableId].children = new_children
         for child in added_children:
-            childId = hashObj(child)
-            if childId not in self.renderables:
-                self.renderables[childId] = RenderableContainer(child)
-            self.renderables[childId].refCount += 1
-            total_result[childId] = self.update(child)
+            self.incrementRefCount(child)
+            total_result[hashObj(child)] = self.update(child)
         for child in removed_children:
             self.decrementRefCount(child)
         return total_result
@@ -96,20 +134,18 @@ class RenderableManager:
         else:
             return element
     
-    def handleAttributeChange(self, renderable, attrName):
+    def handleAttributeChange(self, renderable, attrName, attrValue):
         renderableId = hashObj(renderable)
         if renderableId not in self.renderables: return
-        if attrName in self.renderables[renderableId].dependencies:
-            self.update(renderable)
+        if attrName not in self.renderables[renderableId].dependencies: return
+        # TODO: Send update to client
+        print("EMIT", self.update(renderable))
         
 
 class User:
     def __init__(self, sid):
         self.sid = sid
         self.renderableManager = RenderableManager(self)
-    
-    def update(self, renderable):
-        return self.renderableManager.update(renderable)
 
     def handleAttributeChange(self, renderable, attrName):
         self.renderableManager.handleAttributeChange(renderable, attrName)
