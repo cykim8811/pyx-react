@@ -8,15 +8,26 @@ import tornado.gen
 
 from .server import Server
 
+
+class User:
+    def __init__(self, sid):
+        self.sid = sid
+        self.renderables = {}
+
+
 class App:
     def __init__(self, component):
         self.component = component
         self.server = Server()
         self.__init_server()
+
+        self.users = {}
     
     def __init_server(self):
         self.__init_files()
         self.__init_routes()
+        self.__init_user_handlers()
+        self.__init_request_handlers()
     
     def __init_files(self):
         running_dir = sys.path[0]
@@ -39,11 +50,31 @@ class App:
         self.server.add_single_file_handler("/", running_dir + "/public/index.html")
         self.server.add_static_file_handler(r"/public/(.*)", running_dir + "/public")
     
+    def __init_user_handlers(self):
+        # Initialize user handlers
+        @self.server.event
+        def connect(sid, environ):
+            self.users[sid] = User(sid)
+            self.onConnect(self.users[sid])
+        
+        @self.server.event
+        def disconnect(sid):
+            self.onDisconnect(self.users[sid])
+            del self.users[sid]
+
     def __init_request_handlers(self):
         # Initialize request handlers
         pass
-        
+
 
     def run(self, host=None, port=None, verbose=True):
         self.server.run(host, port, verbose=verbose)
+
+
+    
+    def onConnect(self, user):
+        pass
+
+    def onDisconnect(self, user):
+        pass
 
