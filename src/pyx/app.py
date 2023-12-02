@@ -37,13 +37,19 @@ class RenderableManager:
         renderableId = hashObj(renderable)
         if renderableId not in self.renderables:
             self.renderables[renderableId] = RenderableContainer(renderable)
-        # TODO: Register getattr to check props
+        old_getattr = renderable.__class__.__getattribute__
+        used_attrs = set()
+        def new_getattr(self, name):
+            used_attrs.add(name)
+            return old_getattr(self, name)
+        __renderable_class = renderable.__class__
+        __renderable_class.__getattribute__ = new_getattr
         render_result, new_children = self.convert(renderable.__render__(self.user))
         total_result = {
             renderableId: render_result
         }
-        # TODO: Unregister getattr
-        # TODO: Set dependencies
+        __renderable_class.__getattribute__ = old_getattr
+        self.renderables[renderableId].dependencies = used_attrs
         self.renderables[renderableId].result = render_result
         added_children = new_children - self.renderables[renderableId].children
         removed_children = self.renderables[renderableId].children - new_children
@@ -57,7 +63,6 @@ class RenderableManager:
         for child in removed_children:
             self.decrementRefCount(child)
         return total_result
-
 
     def convert(self, element):
         self.__new_children = set()
@@ -91,11 +96,24 @@ class RenderableManager:
             return str(element)
         else:
             return element
+    
+    def handleAttributeChange(self, renderable, attrName):
+        renderableId = hashObj(renderable)
+        if renderableId not in self.renderables: return
+        if attrName in self.renderables[renderableId].dependencies:
+            self.update(renderable)
         
 
 class User:
     def __init__(self, sid):
         self.sid = sid
+        self.renderableManager = RenderableManager(self)
+    
+    def update(self, renderable):
+        return self.renderableManager.update(renderable)
+
+    def handleAttributeChange(self, renderable, attrName):
+        self.renderableManager.handleAttributeChange(renderable, attrName)
 
 class App:
     def __init__(self, component):
