@@ -13,7 +13,6 @@ from .server import Server
 class RenderableContainer:
     def __init__(self, renderable):
         self.renderable = renderable
-        self.result = None
         self.children = set()
         self.dependencies = set()
         self.refCount = 0
@@ -37,6 +36,7 @@ class RenderableManager:
         renderableId = hashObj(renderable)
         if renderableId not in self.renderables:
             self.renderables[renderableId] = RenderableContainer(renderable)
+        # TODO: Add user data dependency
         old_getattr = renderable.__class__.__getattribute__
         used_attrs = set()
         def new_getattr(self, name):
@@ -50,7 +50,6 @@ class RenderableManager:
         }
         __renderable_class.__getattribute__ = old_getattr
         self.renderables[renderableId].dependencies = used_attrs
-        self.renderables[renderableId].result = render_result
         added_children = new_children - self.renderables[renderableId].children
         removed_children = self.renderables[renderableId].children - new_children
         self.renderables[renderableId].children = new_children
