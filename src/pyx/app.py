@@ -177,16 +177,39 @@ class JSObject:
         self.id = id
         self.server = server
         self.path = path
+        self.cache = {}
     
     def __getattr__(self, name):
-        return JSObject(self.id, self.server, self.path + [name])
+        if name in self.cache: return self.cache[name]
+        jsObj = JSObject(self.id, self.server, self.path + [name])
+        if type(self.cache) is dict:
+            innerCache = self.cache[name] if name in self.cache else {}
+            self.cache[name] = jsObj
+            jsObj.cache = innerCache
+        else:
+            self.cache[name] = jsObj
+        return jsObj
 
     def __getitem__(self, index):
-        return JSObject(self.id, self.server, self.path + [index])
+        if index in self.cache: return self.cache[index]
+        jsObj = JSObject(self.id, self.server, self.path + [index])
+        if type(self.cache) is dict:
+            innerCache = self.cache[name] if name in self.cache else {}
+            self.cache[name] = jsObj
+            jsObj.cache = innerCache
+        else:
+            self.cache[index] = jsObj
+        return jsObj
 
     def __await__(self):
+        if self.cache != {}:
+            async def awaitable():
+                return self.cache
+            return awaitable().__await__()
         async def awaitable():
-            return await self.server.request('jsobject_getattr', {'id': self.id, 'attr': self.path})
+            res = await self.server.request('jsobject_getattr', {'id': self.id, 'attr': self.path})
+            self.cache = res
+            return res
         return awaitable().__await__()
 
 class App:
