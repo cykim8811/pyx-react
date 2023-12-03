@@ -6,6 +6,7 @@ class Counter:
         self.count = 0
 
     async def increment(self, event):
+        print(await event.button)
         self.count += 1
         return
 

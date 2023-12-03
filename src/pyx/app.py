@@ -247,8 +247,8 @@ class App:
             argId = data['argId']
             argCount = data['argCount']
             callableObj = user.resourceManager.resources[callableId].resource
-            argObj = JSObject(argId, self.server, [])
-            result = await callableObj(argObj)
+            argObjs = [JSObject(argId, self.server, [i]) for i in range(argCount)]
+            result = await callableObj(*argObjs)
             return result
 
 
