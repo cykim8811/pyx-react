@@ -127,7 +127,7 @@ class ResourceManager:
             self.__new_children[hashObj(element)] = element
             return {
                 '__type__': 'renderable',
-                'resourceId': hashObj(element)
+                'renderableId': hashObj(element)
             }
         elif hasattr(element, '__call__'):
             self.__new_children[hashObj(element)] = element
