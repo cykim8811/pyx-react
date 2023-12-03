@@ -11,9 +11,9 @@ class PyXRequestManager{
         this.socket = socket;
         this.requests = {};
         this.socket.on('response', (data: any) => {
-            if (!data.id) { console.log('Cannot find id in response'); return; }
-            if (!data.data) { console.log('Cannot find data in response'); return; }
-            if (!this.requests[data.id]) { console.log('Cannot find request with id ' + data.id); return; }
+            if (data.id === undefined) { console.log('Cannot find id in response'); return; }
+            if (data.data === undefined) { console.log('Cannot find data in response'); return; }
+            if (this.requests[data.id] === undefined) { console.log('Cannot find request with id ' + data.id); return; }
             this.requests[data.id](data.data);
             delete this.requests[data.id];
         });
@@ -80,11 +80,13 @@ export class PyXApp{
     renderableSetters: {[key: string]: any};
     rootIDSetters: any[];
     renderData: {[key: string]: any};
+    jsObjects: {[key: string]: any};
     constructor() {
         this.client = new PyXClient();
         this.renderableSetters = {};
         this.rootIDSetters = [];
         this.renderData = {};
+        this.jsObjects = {};
         this.client.on('renderable_update', (data: any) => {
             for (const id in data) {
                 const renderable = this.convert(data[id]);
@@ -101,6 +103,19 @@ export class PyXApp{
                 setter(data);
             }
         });
+        this.client.add_handler('jsobject_getattr', (data: any) => {
+            if (data.id === undefined) { throw new Error('Cannot find id in jsobject_getattr'); }
+            if (data.attr === undefined) { throw new Error('Cannot find attr in jsobject_getattr'); }
+            if (this.jsObjects[data.id] === undefined) { throw new Error('Cannot find object with id ' + data.id); }
+            let obj = this.jsObjects[data.id];
+            for (const attr of data.attr) {
+                obj = obj[attr];
+            }
+            if (typeof obj === 'object') {
+                throw new Error('Using objects in jsobject_getattr is not supported yet');
+            }
+            return obj;
+        });
     }
     
     convert(node: any): any {
@@ -115,6 +130,14 @@ export class PyXApp{
         }
         else if (typeof node === 'object' && node['__type__'] === 'renderable') {
             return createElement(Renderable, {id: node['renderableId'], app: this});
+        }
+        else if (typeof node === 'object' && node['__type__'] === 'callable') {
+            return async (...args: any[]) => {
+                const jsObjectID = Math.random().toString(36).substring(7);
+                this.jsObjects[jsObjectID] = args;
+                await this.client.request('callable_call', {id: node['callableId'], argId: jsObjectID, argCount: args.length});
+                delete this.jsObjects[jsObjectID];
+            }
         }
         else {
             return node;

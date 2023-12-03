@@ -5,8 +5,9 @@ class Counter:
     def __init__(self):
         self.count = 0
 
-    def increment(self, event):
+    async def increment(self, event):
         self.count += 1
+        return
 
     def __render__(self, user):
         return createElement('div', {},
