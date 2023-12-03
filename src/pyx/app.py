@@ -34,6 +34,31 @@ class SetterListener:
 setterListener = SetterListener()
 
 
+class FunctionPreloadManager:
+    def __init__(self):
+        self.functions = {}
+    
+    def identifyFunction(self, func):
+        funcRepr = func.__repr__()
+        return funcRepr
+
+    def getPreloadArgs(self, func):
+        funcId = self.identifyFunction(func)
+        if funcId not in self.functions:
+            return {}
+        return self.functions[funcId]
+
+    def useAttr(self, func, attrPath):
+        funcId = self.identifyFunction(func)
+        if funcId not in self.functions:
+            self.functions[funcId] = {}
+        target = self.functions[funcId]
+        for attr in attrPath:
+            if attr not in target:
+                target[attr] = {}
+            target = target[attr]
+            
+
 class ResourceContainer:
     def __init__(self, resource):
         self.resource = resource
@@ -45,6 +70,8 @@ class ResourceManager:
     def __init__(self, user):
         self.resources = {}
         self.user = user
+
+        self.functionPreloadManager = FunctionPreloadManager()
 
         self.__new_children = {}
         self.__registered_renderable_classes = set()
@@ -127,13 +154,15 @@ class ResourceManager:
             self.__new_children[hashObj(element)] = element
             return {
                 '__type__': 'renderable',
-                'resourceId': hashObj(element)
+                'renderableId': hashObj(element)
             }
         elif hasattr(element, '__call__'):
             self.__new_children[hashObj(element)] = element
+            preloadArgs = self.functionPreloadManager.getPreloadArgs(element)
             return {
                 '__type__': 'callable',
-                'callableId': hashObj(element)
+                'callableId': hashObj(element),
+                'preload': preloadArgs
             }
         elif type(element) is list:
             return [self.__convert(child) for child in element]
@@ -177,17 +206,57 @@ class JSObject:
         self.id = id
         self.server = server
         self.path = path
+        self.cache = {}
+        self.listeners = set()
+    
+    def load_cache(self, cache):
+        self.cache = cache
+        # for key, value in cache.items():
+        #     if type(value) is dict:
+        #         jsObj = JSObject(self.id, self.server, self.path + [key])
+        #         jsObj.load_cache(value)
+        #         self.cache[key] = jsObj
+        #     else:
+        #         self.cache[key] = value
     
     def __getattr__(self, name):
-        return JSObject(self.id, self.server, self.path + [name])
+        name = str(name)    # TODO: Differentiate between int indices and string indices
+        jsObj = JSObject(self.id, self.server, self.path + [name])
+
+        innerCache = self.cache[name] if name in self.cache else {}
+        self.cache[name] = jsObj
+        jsObj.cache = innerCache
+        jsObj.listeners = self.listeners
+
+        return jsObj
 
     def __getitem__(self, index):
-        return JSObject(self.id, self.server, self.path + [index])
+        index = str(index)
+        jsObj = JSObject(self.id, self.server, self.path + [index])
+
+        innerCache = self.cache[index] if index in self.cache else {}
+        self.cache[index] = jsObj
+        jsObj.cache = innerCache
+        jsObj.listeners = self.listeners
+
+        return jsObj
 
     def __await__(self):
+        if self.cache != {}:
+            async def awaitable():
+                return self.cache
+            return awaitable().__await__()
         async def awaitable():
-            return await self.server.request('jsobject_getattr', {'id': self.id, 'attr': self.path})
+            res = await self.server.request('jsobject_getattr', {'id': self.id, 'attr': self.path})
+            self.cache = res
+            return res
+        for listener in self.listeners: listener(self)
         return awaitable().__await__()
+    
+    def attachAttrUseListener(self, func, functionPreloadManager):
+        def listener(jsObj):
+            functionPreloadManager.useAttr(func, jsObj.path)
+        self.listeners.add(listener)
 
 class App:
     def __init__(self, component):
@@ -247,7 +316,13 @@ class App:
             argId = data['argId']
             argCount = data['argCount']
             callableObj = user.resourceManager.resources[callableId].resource
+            preload = data['preload'] if 'preload' in data else {}
             argObjs = [JSObject(argId, self.server, [i]) for i in range(argCount)]
+            for arg in argObjs:
+                arg.attachAttrUseListener(callableObj, user.resourceManager.functionPreloadManager)
+            for i in range(argCount):
+                ind = str(i)    # TODO: Differentiate between int indices and string indices
+                argObjs[i].load_cache(preload[ind] if ind in preload else {})
             result = await callableObj(*argObjs)
             return result
 
