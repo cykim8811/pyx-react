@@ -34,34 +34,34 @@ class SetterListener:
 setterListener = SetterListener()
 
 
-class RenderableContainer:
-    def __init__(self, renderable):
-        self.renderable = renderable
-        self.children = set()
+class ResourceContainer:
+    def __init__(self, resource):
+        self.resource = resource
+        self.children = {}
         self.dependencies = set()
         self.refCount = 0
 
-class RenderableManager:
+class ResourceManager:
     def __init__(self, user):
-        self.renderables = {}
+        self.resources = {}
         self.user = user
 
         self.__new_children = {}
         self.__registered_renderable_classes = set()
 
     def incrementRefCount(self, renderable):
-        renderableId = hashObj(renderable)
-        if renderableId not in self.renderables:
-            self.renderables[renderableId] = RenderableContainer(renderable)
-        self.renderables[renderableId].refCount += 1
+        resourceId = hashObj(renderable)
+        if resourceId not in self.resources:
+            self.resources[resourceId] = ResourceContainer(renderable)
+        self.resources[resourceId].refCount += 1
     
     def decrementRefCount(self, renderable):
-        renderableId = hashObj(renderable)
-        self.renderables[renderableId].refCount -= 1
-        if self.renderables[renderableId].refCount == 0:
-            for child in self.renderables[renderableId].children:
+        resourceId = hashObj(renderable)
+        self.resources[resourceId].refCount -= 1
+        if self.resources[resourceId].refCount == 0:
+            for child in self.resources[resourceId].children:
                 self.decrementRefCount(child)
-            del self.renderables[renderableId]
+            del self.resources[resourceId]
     
     def registerSetattrHandler(self, renderable):
         renderableClass = renderable.__class__
@@ -70,11 +70,13 @@ class RenderableManager:
         def handler(renderable, attrName, attrValue):
             self.handleAttributeChange(renderable, attrName, attrValue)
         setterListener.addHandler(renderableClass, handler)
+    
 
     def update(self, renderable):
         renderableId = hashObj(renderable)
-        if renderableId not in self.renderables:
-            self.renderables[renderableId] = RenderableContainer(renderable)
+        if renderableId not in self.resources:
+            self.resources[renderableId] = ResourceContainer(renderable)
+        
         # TODO: Add user data dependency
         old_getattr = renderable.__class__.__getattribute__
         used_attrs = set()
@@ -83,26 +85,28 @@ class RenderableManager:
             return old_getattr(self, name)
         __renderable_class = renderable.__class__
         __renderable_class.__getattribute__ = new_getattr
-        
         render_result, new_children = self.convert(renderable.__render__(self.user))
         total_result = {
             renderableId: render_result
         }
         __renderable_class.__getattribute__ = old_getattr
         self.registerSetattrHandler(renderable)
-        self.renderables[renderableId].dependencies = used_attrs
-        added_children = new_children - self.renderables[renderableId].children
-        removed_children = self.renderables[renderableId].children - new_children
-        self.renderables[renderableId].children = new_children
-        for child in added_children:
+        self.resources[renderableId].dependencies = used_attrs
+        added_children = {k: v for k, v in new_children.items() if k not in self.resources[renderableId].children}
+        removed_children = {k: v for k, v in self.resources[renderableId].children.items() if k not in new_children}
+        self.resources[renderableId].children = new_children
+        for childID in added_children:
+            child = added_children[childID]
             self.incrementRefCount(child)
-            total_result.update(self.update(child))
-        for child in removed_children:
+            if hasattr(child, '__render__'):
+                total_result.update(self.update(child))
+        for childID in removed_children:
+            child = removed_children[childID]
             self.decrementRefCount(child)
         return total_result
 
     def convert(self, element):
-        self.__new_children = set()
+        self.__new_children = {}
         converted = self.__convert(element)
         return converted, self.__new_children
 
@@ -120,10 +124,16 @@ class RenderableManager:
                 'children': self.__convert(element['children'])
             }
         elif hasattr(element, '__render__'):
-            self.__new_children.add(element)
+            self.__new_children[hashObj(element)] = element
             return {
                 '__type__': 'renderable',
-                'renderableId': hashObj(element)
+                'resourceId': hashObj(element)
+            }
+        elif hasattr(element, '__call__'):
+            self.__new_children[hashObj(element)] = element
+            return {
+                '__type__': 'callable',
+                'callableId': hashObj(element)
             }
         elif type(element) is list:
             return [self.__convert(child) for child in element]
@@ -136,8 +146,8 @@ class RenderableManager:
     
     def handleAttributeChange(self, renderable, attrName, attrValue):
         renderableId = hashObj(renderable)
-        if renderableId not in self.renderables: return
-        if attrName not in self.renderables[renderableId].dependencies: return
+        if renderableId not in self.resources: return
+        if attrName not in self.resources[renderableId].dependencies: return
         self.user.sendUpdate(renderable)
         
 
@@ -146,21 +156,38 @@ class User:
         self.sid = sid
         self.root = root
         self.server = server
-        self.renderableManager = RenderableManager(self)
+        self.resourceManager = ResourceManager(self)
         self.server.spawn(self.emit, 'root_id', hashObj(root))
         self.sendUpdate(self.root)
 
     def handleAttributeChange(self, renderable, attrName):
-        self.renderableManager.handleAttributeChange(renderable, attrName)
+        self.resourceManager.handleAttributeChange(renderable, attrName)
     
     def emit(self, event, data):
         return self.server.emit(event, data, room=self.sid)
     
     def sendUpdate(self, renderable, includeRoot=False):
         async def sendToClient():
-            update = self.renderableManager.update(renderable)
+            update = self.resourceManager.update(renderable)
             await self.emit('renderable_update', update)
         self.server.spawn(sendToClient)
+
+class JSObject:
+    def __init__(self, id, server, path=[]):
+        self.id = id
+        self.server = server
+        self.path = path
+    
+    def __getattr__(self, name):
+        return JSObject(self.id, self.server, self.path + [name])
+
+    def __getitem__(self, index):
+        return JSObject(self.id, self.server, self.path + [index])
+
+    def __await__(self):
+        async def awaitable():
+            return await self.server.request('jsobject_getattr', {'id': self.id, 'attr': self.path})
+        return awaitable().__await__()
 
 class App:
     def __init__(self, component):
@@ -212,9 +239,17 @@ class App:
             del self.users[sid]
 
     def __init_request_handlers(self):
-        # Initialize request handlers
-        pass
-            
+        # Initialize Callable Handlers
+        @self.server.handler
+        async def callable_call(sid, data):
+            user = self.users[sid]
+            callableId = data['id']
+            argId = data['argId']
+            argCount = data['argCount']
+            callableObj = user.resourceManager.resources[callableId].resource
+            argObjs = [JSObject(argId, self.server, [i]) for i in range(argCount)]
+            result = await callableObj(*argObjs)
+            return result
 
 
     def run(self, host=None, port=None, verbose=True):
