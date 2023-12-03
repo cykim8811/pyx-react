@@ -151,7 +151,6 @@ export class PyXApp{
                 this.jsObjects[jsObjectID] = args;
                 const format = node['preload'] || {};
                 const preloaded = this.matchArgs(args, format);
-                console.log(preloaded)
                 await this.client.request('callable_call', {id: node['callableId'], argId: jsObjectID, argCount: args.length, preload: preloaded});
                 delete this.jsObjects[jsObjectID];
             }
