@@ -5,9 +5,7 @@ class Counter:
     def __init__(self):
         self.count = 0
 
-    async def increment(self, event):
-        for i in range(100):
-            await event.button
+    def increment(self, event):
         if await event.altKey:
             self.count -= 1
         else:
