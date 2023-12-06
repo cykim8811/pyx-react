@@ -228,12 +228,17 @@ class JSObject:
             if cacheData is not None:
                 return cacheData
             for listener in self._listeners: listener(path)
-            return await self.user.request('jsobject_getattr', {'id': self._id, 'attr': path})
+            res = await self.user.request('jsobject_getattr', {'id': self._id, 'attr': path})
+            self.load_data(res, path)
+            return res
         else:
             result = await self._parent.get_attr([self._attr] + path)
             return result
         
-    def load_data(self, data):
+    def load_data(self, data, path=[]):
+        if len(path) > 0:
+            for attr in path[::-1]:
+                data = {attr: data}
         if type(data) is not dict:
             self._cache = data
             return
