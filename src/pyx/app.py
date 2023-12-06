@@ -34,6 +34,31 @@ class SetterListener:
 setterListener = SetterListener()
 
 
+class FunctionPreloadManager:
+    def __init__(self):
+        self.functions = {}
+    
+    def identifyFunction(self, func):
+        funcRepr = func.__repr__()
+        return funcRepr
+
+    def getPreloadArgs(self, func):
+        funcId = self.identifyFunction(func)
+        if funcId not in self.functions:
+            return {}
+        return self.functions[funcId]
+
+    def useAttr(self, func, attrPath):
+        funcId = self.identifyFunction(func)
+        if funcId not in self.functions:
+            self.functions[funcId] = {}
+        target = self.functions[funcId]
+        for attr in attrPath:
+            if attr not in target:
+                target[attr] = {}
+            target = target[attr]
+            
+
 class ResourceContainer:
     def __init__(self, resource):
         self.resource = resource
@@ -45,6 +70,8 @@ class ResourceManager:
     def __init__(self, user):
         self.resources = {}
         self.user = user
+
+        self.functionPreloadManager = FunctionPreloadManager()
 
         self.__new_children = {}
         self.__registered_renderable_classes = set()
@@ -127,13 +154,15 @@ class ResourceManager:
             self.__new_children[hashObj(element)] = element
             return {
                 '__type__': 'renderable',
-                'resourceId': hashObj(element)
+                'renderableId': hashObj(element)
             }
         elif hasattr(element, '__call__'):
             self.__new_children[hashObj(element)] = element
+            preloadArgs = self.functionPreloadManager.getPreloadArgs(element)
             return {
                 '__type__': 'callable',
-                'callableId': hashObj(element)
+                'callableId': hashObj(element),
+                'preload': preloadArgs
             }
         elif type(element) is list:
             return [self.__convert(child) for child in element]
@@ -173,26 +202,47 @@ class User:
         self.server.spawn(sendToClient)
 
 class JSObject:
-    def __init__(self, id, server, path=[]):
-        self.id = id
-        self.server = server
-        self.path = path
-    
-    def __getattr__(self, name):
-        return JSObject(self.id, self.server, self.path + [name])
+    def __init__(self, id, user, parent=None, attr=None):
+        self._id = id
+        self.user = user
+        self._parent = parent
+        self._attr = attr
+        self._listeners = set()
+        self._cache = {}
 
-    def __getitem__(self, index):
-        return JSObject(self.id, self.server, self.path + [index])
+    async def get_attr(self, path):
+        if self._parent is None:
+            return await self.user.server.request('jsobject_getattr', {'id': self._id, 'attr': path})
+        else:
+            result = await self._parent.get_attr([self._attr] + path)
+            return result
+        
+    def load_data(self, data):
+        pass
 
     def __await__(self):
-        async def awaitable():
-            return await self.server.request('jsobject_getattr', {'id': self.id, 'attr': self.path})
-        return awaitable().__await__()
+        result = self.get_attr([]).__await__()
+        return result
+    
+    def __getitem__(self, key):
+        newObject = JSObject(self._id, self.user, self, key)
+        return newObject
+
+    def __getattr__(self, name):
+        newObject = JSObject(self._id, self.user, self, name)
+        return newObject
+    
+    # await self.server.request('jsobject_getattr', {'id': self.id, 'attr': path})
+    def attachAttrUseListener(self, func, functionPreloadManager):
+        def listener(jsObj):
+            functionPreloadManager.useAttr(func, jsObj.path)
+        self._listeners.add(listener)
 
 class App:
-    def __init__(self, component):
-        self.component = component
-        assert hasattr(component, '__render__'), 'Component must have __render__ method'
+    def __init__(self, component=None):
+        if component is not None:
+            assert hasattr(component, '__render__'), 'Component must have __render__ method'
+        self.component = component if component is not None else self
         self.server = Server()
         self.__init_server()
 
@@ -247,15 +297,30 @@ class App:
             argId = data['argId']
             argCount = data['argCount']
             callableObj = user.resourceManager.resources[callableId].resource
-            argObjs = [JSObject(argId, self.server, [i]) for i in range(argCount)]
-            result = await callableObj(*argObjs)
+            preload = data['preload'] if 'preload' in data else {}
+
+            try:
+                
+                argObj = JSObject(argId, user)
+                argObj.load_data(preload)
+                argObj.attachAttrUseListener(callableObj, user.resourceManager.functionPreloadManager)
+
+                result = await callableObj(*[argObj[i] for i in range(argCount)])
+
+            except Exception as e:
+                import traceback
+                traceback.print_exc()
+                return {'error': str(e)}
+
             return result
 
 
     def run(self, host=None, port=None, verbose=True):
         self.server.run(host, port, verbose=verbose)
+    
 
-
+    def __render__(self, user):
+        return createElement('div', {}, "Default App")
     
     def onConnect(self, user):
         pass
