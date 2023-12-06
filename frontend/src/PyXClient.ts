@@ -118,6 +118,20 @@ export class PyXApp{
         });
     }
     
+    private matchArgs(args: any, format: any): any {
+        const result: any = {};
+        for (let i in args) {
+            if (format[i] === undefined) continue;
+            if (typeof args[i] === 'object') {
+                result[i] = this.matchArgs(args[i], format[i]);
+            }
+            else {
+                result[i] = args[i];
+            }
+        }
+        return result;
+    }
+    
     convert(node: any): any {
         if (Array.isArray(node)) {
             return node.map((n: any) => this.convert(n));
@@ -135,7 +149,9 @@ export class PyXApp{
             return async (...args: any[]) => {
                 const jsObjectID = Math.random().toString(36).substring(7);
                 this.jsObjects[jsObjectID] = args;
-                await this.client.request('callable_call', {id: node['callableId'], argId: jsObjectID, argCount: args.length});
+                const format = node['preload'] || {};
+                const preloaded = this.matchArgs(args, format);
+                await this.client.request('callable_call', {id: node['callableId'], argId: jsObjectID, argCount: args.length, preload: preloaded});
                 delete this.jsObjects[jsObjectID];
             }
         }

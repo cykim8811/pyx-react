@@ -44,8 +44,7 @@ class FunctionPreloadManager:
 
     def getPreloadArgs(self, func):
         funcId = self.identifyFunction(func)
-        if funcId not in self.functions:
-            return {}
+        if funcId not in self.functions: return {}
         return self.functions[funcId]
 
     def useAttr(self, func, attrPath):
@@ -200,6 +199,9 @@ class User:
             update = self.resourceManager.update(renderable)
             await self.emit('renderable_update', update)
         self.server.spawn(sendToClient)
+    
+    async def request(self, name, data):
+        return await self.server.request(name, data, room=self.sid)
 
 class JSObject:
     def __init__(self, id, user, parent=None, attr=None):
@@ -210,32 +212,51 @@ class JSObject:
         self._listeners = set()
         self._cache = {}
 
+    def get_data_from_cache(self, path):
+        if len(path) == 0:
+            return self._cache
+        else:
+            target = self._cache
+            for attr in path:
+                if attr not in target: return None
+                target = target[attr]._cache
+            return target
+
     async def get_attr(self, path):
         if self._parent is None:
-            return await self.user.server.request('jsobject_getattr', {'id': self._id, 'attr': path})
+            cacheData = self.get_data_from_cache(path)
+            if cacheData is not None:
+                return cacheData
+            for listener in self._listeners: listener(path)
+            return await self.user.request('jsobject_getattr', {'id': self._id, 'attr': path})
         else:
             result = await self._parent.get_attr([self._attr] + path)
             return result
         
     def load_data(self, data):
-        pass
+        if type(data) is not dict:
+            self._cache = data
+            return
+        for key, value in data.items():
+            self._cache[key] = JSObject(self._id, self.user, self, key)
+            self._cache[key].load_data(value)
 
     def __await__(self):
         result = self.get_attr([]).__await__()
         return result
     
     def __getitem__(self, key):
+        key = str(key)
         newObject = JSObject(self._id, self.user, self, key)
         return newObject
 
     def __getattr__(self, name):
+        name = str(name)
         newObject = JSObject(self._id, self.user, self, name)
         return newObject
-    
-    # await self.server.request('jsobject_getattr', {'id': self.id, 'attr': path})
+
     def attachAttrUseListener(self, func, functionPreloadManager):
-        def listener(jsObj):
-            functionPreloadManager.useAttr(func, jsObj.path)
+        def listener(path): functionPreloadManager.useAttr(func, path)
         self._listeners.add(listener)
 
 class App:
@@ -298,19 +319,11 @@ class App:
             argCount = data['argCount']
             callableObj = user.resourceManager.resources[callableId].resource
             preload = data['preload'] if 'preload' in data else {}
+            argObj = JSObject(argId, user)
+            argObj.load_data(preload)
+            argObj.attachAttrUseListener(callableObj, user.resourceManager.functionPreloadManager)
 
-            try:
-                
-                argObj = JSObject(argId, user)
-                argObj.load_data(preload)
-                argObj.attachAttrUseListener(callableObj, user.resourceManager.functionPreloadManager)
-
-                result = await callableObj(*[argObj[i] for i in range(argCount)])
-
-            except Exception as e:
-                import traceback
-                traceback.print_exc()
-                return {'error': str(e)}
+            result = await callableObj(*[argObj[i] for i in range(argCount)])
 
             return result
 
