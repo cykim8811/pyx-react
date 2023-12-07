@@ -1,6 +1,5 @@
-# PyX Framework
 
-![logo](https://raw.githubusercontent.com/cykim8811/pyx-react/main/assets/pyx.svg)
+# <img src="https://raw.githubusercontent.com/cykim8811/pyx-react/main/assets/pyx.svg" width="30" height="30"> PyX Framework
 
 
 ## Introduction
