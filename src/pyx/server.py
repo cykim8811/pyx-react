@@ -23,10 +23,10 @@ class RequestManager:
             else:
                 raise ValueError(f'Cannot find request id: {data["id"]}')
     
-    async def request(self, name, data):
+    async def request(self, name, data, room=None):
         request_id = hex(random.randint(0, 0xffffffffffff))[2:]
         self.requests[request_id] = asyncio.Future()
-        await self.sio.emit('request', {'id': request_id, 'name': name, 'data': data})
+        await self.sio.emit('request', {'id': request_id, 'name': name, 'data': data}, room=room)
         return await self.requests[request_id]
 
 
@@ -42,9 +42,9 @@ class ResponseManager:
             if data['name'] not in self.handlers: raise ValueError(f'Cannot find request handler: {data["name"]}')
             try:
                 response_data = await self.handlers[data['name']](sid, data['data'])
-                await sio.emit('response', {'id': data['id'], 'data': response_data})
+                await sio.emit('response', {'id': data['id'], 'data': response_data}, room=sid)
             except Exception as e:
-                await sio.emit('response', {'id': data['id'], 'data': {'error': str(e)}})
+                await sio.emit('response', {'id': data['id'], 'data': {'error': str(e)}}, room=sid)
 
     def add_handler(self, name, handler):
         self.handlers[name] = handler
@@ -88,8 +88,8 @@ class Server:
         self.__check_event_name(func.__name__)
         self.response_manager.add_handler(func.__name__, func)
     
-    async def request(self, name, data):
-        return await self.request_manager.request(name, data)
+    async def request(self, name, data, room=None):
+        return await self.request_manager.request(name, data, room=room)
     
     def emit(self, name, data, room=None):
         return self.sio.emit(name, data, room=room)

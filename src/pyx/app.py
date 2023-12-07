@@ -34,17 +34,47 @@ class SetterListener:
 setterListener = SetterListener()
 
 
+class FunctionPreloadManager:
+    def __init__(self):
+        self.functions = {}
+    
+    def identifyFunction(self, func):
+        funcRepr = func.__repr__()
+        return funcRepr
+
+    def getPreloadArgs(self, func):
+        funcId = self.identifyFunction(func)
+        if funcId not in self.functions: return {}
+        return self.functions[funcId]
+
+    def useAttr(self, func, attrPath):
+        funcId = self.identifyFunction(func)
+        needUpdate = False
+        if funcId not in self.functions:
+            self.functions[funcId] = {}
+            needUpdate = True
+        target = self.functions[funcId]
+        for attr in attrPath:
+            if attr not in target:
+                target[attr] = {}
+                needUpdate = True
+            target = target[attr]
+        return needUpdate
+
 class ResourceContainer:
     def __init__(self, resource):
         self.resource = resource
         self.children = {}
         self.dependencies = set()
         self.refCount = 0
+        self.updateHandler = []
 
 class ResourceManager:
     def __init__(self, user):
         self.resources = {}
         self.user = user
+
+        self.functionPreloadManager = FunctionPreloadManager()
 
         self.__new_children = {}
         self.__registered_renderable_classes = set()
@@ -100,6 +130,8 @@ class ResourceManager:
             self.incrementRefCount(child)
             if hasattr(child, '__render__'):
                 total_result.update(self.update(child))
+            if hasattr(child, '__call__'):
+                self.resources[childID].updateHandler.append(lambda: self.user.forceUpdate(renderable))
         for childID in removed_children:
             child = removed_children[childID]
             self.decrementRefCount(child)
@@ -127,13 +159,15 @@ class ResourceManager:
             self.__new_children[hashObj(element)] = element
             return {
                 '__type__': 'renderable',
-                'resourceId': hashObj(element)
+                'renderableId': hashObj(element)
             }
         elif hasattr(element, '__call__'):
             self.__new_children[hashObj(element)] = element
+            preloadArgs = self.functionPreloadManager.getPreloadArgs(element)
             return {
                 '__type__': 'callable',
-                'callableId': hashObj(element)
+                'callableId': hashObj(element),
+                'preload': preloadArgs
             }
         elif type(element) is list:
             return [self.__convert(child) for child in element]
@@ -166,33 +200,90 @@ class User:
     def emit(self, event, data):
         return self.server.emit(event, data, room=self.sid)
     
-    def sendUpdate(self, renderable, includeRoot=False):
+    def sendUpdate(self, renderable):
         async def sendToClient():
             update = self.resourceManager.update(renderable)
             await self.emit('renderable_update', update)
         self.server.spawn(sendToClient)
+    
+    async def request(self, name, data):
+        return await self.server.request(name, data, room=self.sid)
+    
+    def forceUpdate(self, target):
+        self.sendUpdate(target)
+
 
 class JSObject:
-    def __init__(self, id, server, path=[]):
-        self.id = id
-        self.server = server
-        self.path = path
-    
-    def __getattr__(self, name):
-        return JSObject(self.id, self.server, self.path + [name])
+    def __init__(self, id, user, parent=None, attr=None):
+        self._id = id
+        self.user = user
+        self._parent = parent
+        self._attr = attr
+        self._listeners = set()
+        self._cache = {}
 
-    def __getitem__(self, index):
-        return JSObject(self.id, self.server, self.path + [index])
+    def get_data_from_cache(self, path):
+        if len(path) == 0:
+            return self._cache
+        else:
+            target = self._cache
+            for attr in path:
+                if attr not in target: return None
+                target = target[attr]._cache
+            return target
+
+    async def get_attr(self, path):
+        if self._parent is None:
+            cacheData = self.get_data_from_cache(path)
+            if cacheData is not None:
+                return cacheData
+            for listener in self._listeners: listener(path)
+            res = await self.user.request('jsobject_getattr', {'id': self._id, 'attr': path})
+            self.load_data(res, path)
+            return res
+        else:
+            result = await self._parent.get_attr([self._attr] + path)
+            return result
+        
+    def load_data(self, data, path=[]):
+        if len(path) > 0:
+            for attr in path[::-1]:
+                data = {attr: data}
+        if type(data) is not dict:
+            self._cache = data
+            return
+        for key, value in data.items():
+            self._cache[key] = JSObject(self._id, self.user, self, key)
+            self._cache[key].load_data(value)
 
     def __await__(self):
-        async def awaitable():
-            return await self.server.request('jsobject_getattr', {'id': self.id, 'attr': self.path})
-        return awaitable().__await__()
+        result = self.get_attr([]).__await__()
+        return result
+    
+    def __getitem__(self, key):
+        key = str(key)
+        newObject = JSObject(self._id, self.user, self, key)
+        return newObject
+
+    def __getattr__(self, name):
+        name = str(name)
+        newObject = JSObject(self._id, self.user, self, name)
+        return newObject
+
+    def attachAttrUseListener(self, func, functionPreloadManager):
+        def listener(path):
+            needUpdate = functionPreloadManager.useAttr(func, path)
+            if needUpdate:
+                for handler in self.user.resourceManager.resources[hashObj(func)].updateHandler:
+                    handler()
+                print("Force update")
+        self._listeners.add(listener)
 
 class App:
-    def __init__(self, component):
-        self.component = component
-        assert hasattr(component, '__render__'), 'Component must have __render__ method'
+    def __init__(self, component=None):
+        if component is not None:
+            assert hasattr(component, '__render__'), 'Component must have __render__ method'
+        self.component = component if component is not None else self
         self.server = Server()
         self.__init_server()
 
@@ -247,15 +338,24 @@ class App:
             argId = data['argId']
             argCount = data['argCount']
             callableObj = user.resourceManager.resources[callableId].resource
-            argObjs = [JSObject(argId, self.server, [i]) for i in range(argCount)]
-            result = await callableObj(*argObjs)
+            preload = data['preload'] if 'preload' in data else {}
+            argObj = JSObject(argId, user)
+            argObj.load_data(preload)
+            argObj.attachAttrUseListener(callableObj, user.resourceManager.functionPreloadManager)
+            # for handler in user.resourceManager.resources[callableId].updateHandler:
+            #     handler()
+
+            result = await callableObj(*[argObj[i] for i in range(argCount)])
+
             return result
 
 
     def run(self, host=None, port=None, verbose=True):
         self.server.run(host, port, verbose=verbose)
+    
 
-
+    def __render__(self, user):
+        return createElement('div', {}, "Default App")
     
     def onConnect(self, user):
         pass
