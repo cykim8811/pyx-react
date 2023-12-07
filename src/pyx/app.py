@@ -49,14 +49,17 @@ class FunctionPreloadManager:
 
     def useAttr(self, func, attrPath):
         funcId = self.identifyFunction(func)
+        needUpdate = False
         if funcId not in self.functions:
             self.functions[funcId] = {}
+            needUpdate = True
         target = self.functions[funcId]
         for attr in attrPath:
             if attr not in target:
                 target[attr] = {}
+                needUpdate = True
             target = target[attr]
-            
+        return needUpdate
 
 class ResourceContainer:
     def __init__(self, resource):
@@ -64,6 +67,7 @@ class ResourceContainer:
         self.children = {}
         self.dependencies = set()
         self.refCount = 0
+        self.updateHandler = []
 
 class ResourceManager:
     def __init__(self, user):
@@ -126,6 +130,8 @@ class ResourceManager:
             self.incrementRefCount(child)
             if hasattr(child, '__render__'):
                 total_result.update(self.update(child))
+            if hasattr(child, '__call__'):
+                self.resources[childID].updateHandler.append(lambda: self.user.forceUpdate(renderable))
         for childID in removed_children:
             child = removed_children[childID]
             self.decrementRefCount(child)
@@ -194,7 +200,7 @@ class User:
     def emit(self, event, data):
         return self.server.emit(event, data, room=self.sid)
     
-    def sendUpdate(self, renderable, includeRoot=False):
+    def sendUpdate(self, renderable):
         async def sendToClient():
             update = self.resourceManager.update(renderable)
             await self.emit('renderable_update', update)
@@ -202,6 +208,10 @@ class User:
     
     async def request(self, name, data):
         return await self.server.request(name, data, room=self.sid)
+    
+    def forceUpdate(self, target):
+        self.sendUpdate(target)
+
 
 class JSObject:
     def __init__(self, id, user, parent=None, attr=None):
@@ -261,7 +271,12 @@ class JSObject:
         return newObject
 
     def attachAttrUseListener(self, func, functionPreloadManager):
-        def listener(path): functionPreloadManager.useAttr(func, path)
+        def listener(path):
+            needUpdate = functionPreloadManager.useAttr(func, path)
+            if needUpdate:
+                for handler in self.user.resourceManager.resources[hashObj(func)].updateHandler:
+                    handler()
+                print("Force update")
         self._listeners.add(listener)
 
 class App:
@@ -327,6 +342,8 @@ class App:
             argObj = JSObject(argId, user)
             argObj.load_data(preload)
             argObj.attachAttrUseListener(callableObj, user.resourceManager.functionPreloadManager)
+            # for handler in user.resourceManager.resources[callableId].updateHandler:
+            #     handler()
 
             result = await callableObj(*[argObj[i] for i in range(argCount)])
 
