@@ -66,6 +66,7 @@ class ResourceContainer:
         self.resource = resource
         self.children = {}
         self.dependencies = set()
+        self.user_dependencies = set()
         self.refCount = 0
         self.updateHandler = []
 
@@ -101,27 +102,38 @@ class ResourceManager:
             self.handleAttributeChange(renderable, attrName, attrValue)
         setterListener.addHandler(renderableClass, handler)
     
+    def registerUserSetitemHandler(self, renderable):
+        # self.user.addHandler(renderable, self.handleAttributeChange)
+        pass
 
     def update(self, renderable):
         renderableId = hashObj(renderable)
         if renderableId not in self.resources:
             self.resources[renderableId] = ResourceContainer(renderable)
         
-        # TODO: Add user data dependency
         old_getattr = renderable.__class__.__getattribute__
+        old_user_getitem = User.__getitem__
         used_attrs = set()
+        used_user_items = set()
         def new_getattr(self, name):
             used_attrs.add(name)
             return old_getattr(self, name)
+        def new_user_getitem(self, name):
+            used_user_items.add(name)
+            return old_user_getitem(self, name)
         __renderable_class = renderable.__class__
         __renderable_class.__getattribute__ = new_getattr
+        User.__getitem__ = new_user_getitem
         render_result, new_children = self.convert(renderable.__render__(self.user))
         total_result = {
             renderableId: render_result
         }
         __renderable_class.__getattribute__ = old_getattr
+        User.__getitem__ = old_user_getitem
         self.registerSetattrHandler(renderable)
+        self.registerUserSetitemHandler(renderable)
         self.resources[renderableId].dependencies = used_attrs
+        self.resources[renderableId].user_dependencies = used_user_items
         added_children = {k: v for k, v in new_children.items() if k not in self.resources[renderableId].children}
         removed_children = {k: v for k, v in self.resources[renderableId].children.items() if k not in new_children}
         self.resources[renderableId].children = new_children
@@ -183,6 +195,11 @@ class ResourceManager:
         if renderableId not in self.resources: return
         if attrName not in self.resources[renderableId].dependencies: return
         self.user.sendUpdate(renderable)
+    
+    def handleUserItemChange(self, attrName, attrValue):
+        for renderableId in self.resources:
+            if attrName not in self.resources[renderableId].user_dependencies: continue
+            self.user.sendUpdate(self.resources[renderableId].resource)
         
 
 class User:
@@ -193,9 +210,17 @@ class User:
         self.resourceManager = ResourceManager(self)
         self.server.spawn(self.emit, 'root_id', hashObj(root))
         self.sendUpdate(self.root)
+        self.data = {}
+    
+    def __getitem__(self, key):
+        return self.data[key]
+    
+    def __setitem__(self, key, value):
+        self.handleAttributeChange(key, value)
+        self.data[key] = value
 
-    def handleAttributeChange(self, renderable, attrName):
-        self.resourceManager.handleAttributeChange(renderable, attrName)
+    def handleAttributeChange(self, attrName, attrValue):
+        self.resourceManager.handleUserItemChange(attrName, attrValue)
     
     def emit(self, event, data):
         return self.server.emit(event, data, room=self.sid)
