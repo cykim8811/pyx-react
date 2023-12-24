@@ -12,6 +12,11 @@ class Account:
     def withdraw(self, amount):
         self.user['balance'] -= amount
         print(f"Withdrew {amount} from {self.user['name']}")
+    
+    def sendTo(self, user, amount):
+        self.user['balance'] += amount
+        user['balance'] -= amount
+        print(f"Sent {amount} from {user['name']} to {self.user['name']}")
 
     def __render__(self, user):
         return createElement(
@@ -31,7 +36,15 @@ class Account:
                     "onClick": lambda e: self.withdraw(10)
                 },
                 "Withdraw"
-            )] if user == self.user else [])
+            )] if user == self.user else [
+                createElement(
+                    "button",
+                    {
+                        "onClick": lambda e: self.sendTo(user, 10)
+                    },
+                    "Send"
+                )
+            ])
         )
 
 class Bank(App):
