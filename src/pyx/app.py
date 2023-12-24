@@ -10,9 +10,6 @@ from .utils.hashID import hashObj
 from .server import Server
 
 
-class StateHolder:
-    pass
-
 class SetterListener:
     def __init__(self):
         self.renderableClasses = set()
@@ -206,7 +203,7 @@ class ResourceManager:
         
 
 class User:
-    def __init__(self, sid, root, server):
+    def __init__(self, sid, root, server, app):
         self.sid = sid
         self.root = root
         self.server = server
@@ -214,6 +211,7 @@ class User:
         self.server.spawn(self.emit, 'root_id', hashObj(root))
         self.sendUpdate(self.root)
         self.data = {}
+        self.app = app
     
     def __getitem__(self, key):
         return self.data[key]
@@ -223,7 +221,9 @@ class User:
         self.data[key] = value
 
     def handleAttributeChange(self, attrName, attrValue):
-        self.resourceManager.handleUserItemChange(attrName, attrValue)
+        # self.resourceManager.handleUserItemChange(attrName, attrValue)
+        for user in self.app.users.values():
+            user.resourceManager.handleUserItemChange(attrName, attrValue)
     
     def emit(self, event, data):
         return self.server.emit(event, data, room=self.sid)
@@ -349,7 +349,7 @@ class App:
         # Initialize user handlers
         @self.server.event
         def connect(sid, environ):
-            self.users[sid] = User(sid, self.component, self.server)
+            self.users[sid] = User(sid, self.component, self.server, self)
             self.onConnect(self.users[sid])
             self.users = self.users
         
