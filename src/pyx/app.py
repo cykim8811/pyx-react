@@ -348,11 +348,13 @@ class App:
         def connect(sid, environ):
             self.users[sid] = User(sid, self.component, self.server)
             self.onConnect(self.users[sid])
+            self.users = self.users
         
         @self.server.event
         def disconnect(sid):
             self.onDisconnect(self.users[sid])
             del self.users[sid]
+            self.users = self.users
 
     def __init_request_handlers(self):
         # Initialize Callable Handlers
