@@ -10,6 +10,9 @@ from .utils.hashID import hashObj
 from .server import Server
 
 
+class StateHolder:
+    pass
+
 class SetterListener:
     def __init__(self):
         self.renderableClasses = set()
