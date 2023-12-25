@@ -176,10 +176,14 @@ class ResourceManager:
         elif hasattr(element, '__call__'):
             self.__new_children[hashObj(element)] = element
             preloadArgs = self.functionPreloadManager.getPreloadArgs(element)
+            preventDefault = hasattr(element, 'preventDefault') and element.preventDefault
+            stopPropagation = hasattr(element, 'stopPropagation') and element.stopPropagation
             return {
                 '__type__': 'callable',
                 'callableId': hashObj(element),
-                'preload': preloadArgs
+                'preload': preloadArgs,
+                'preventDefault': preventDefault,
+                'stopPropagation': stopPropagation
             }
         elif type(element) is list:
             return [self.__convert(child) for child in element]

@@ -146,13 +146,21 @@ export class PyXApp{
             return createElement(Renderable, {id: node['renderableId'], app: this});
         }
         else if (typeof node === 'object' && node['__type__'] === 'callable') {
-            return async (...args: any[]) => {
-                const jsObjectID = Math.random().toString(36).substring(7);
-                this.jsObjects[jsObjectID] = args;
-                const format = node['preload'] || {};
-                const preloaded = this.matchArgs(args, format);
-                await this.client.request('callable_call', {id: node['callableId'], argId: jsObjectID, argCount: args.length, preload: preloaded});
-                delete this.jsObjects[jsObjectID];
+            const prevendDefault = node['preventDefault'] || false;
+            const stopPropagation = node['stopPropagation'] || false;
+            console.log(`Callable ${node['callableId']} has preventDefault=${prevendDefault} and stopPropagation=${stopPropagation}`)
+            return (...args: any[]) => {
+                console.log(args[0])
+                if (prevendDefault) { args[0].preventDefault(); }
+                if (stopPropagation) { args[0].stopPropagation(); }
+                (async (...args: any[]) => {
+                    const jsObjectID = Math.random().toString(36).substring(7);
+                    this.jsObjects[jsObjectID] = args;
+                    const format = node['preload'] || {};
+                    const preloaded = this.matchArgs(args, format);
+                    await this.client.request('callable_call', {id: node['callableId'], argId: jsObjectID, argCount: args.length, preload: preloaded});
+                    delete this.jsObjects[jsObjectID];
+                })(...args);
             }
         }
         else {
