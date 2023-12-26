@@ -25,6 +25,8 @@ cd pyx-react
 python setup.py install
 ```
 
+To install vscode extension, search for `pyx-react` in vscode extension marketplace.
+
 ## Usage
 Here's a simple example of how to use PyX Framework:
 
