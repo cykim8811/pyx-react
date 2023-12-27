@@ -9,6 +9,11 @@ setup(
     url='https://github.com/cykim8811/pyx-react',
     packages=find_packages(where='src'),
     install_requires=[],
+    entry_points={
+        'console_scripts': [
+            'pyx=pyx_transpiler.transpile:transpile_path',
+        ]
+    },
     license='MIT',
     long_description=open('README.md').read(),
     long_description_content_type='text/markdown',

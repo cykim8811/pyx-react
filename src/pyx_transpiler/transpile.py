@@ -4,17 +4,20 @@ from lark import Lark
 from lark.indenter import PythonIndenter
 from lark import Token, Lark, Tree
 from lark.reconstruct import Reconstructor
-from lark.indenter import PythonIndenter
+from lark.visitors import Transformer
 
-# Official Python grammar by Lark
-python_parser3 = Lark.open_from_package('lark', 'python.lark', ['grammars'],
-                                        parser='lalr', postlex=PythonIndenter(), start='file_input',
-                                        maybe_placeholders=False    # Necessary for reconstructor
-                                        )
+py3_parser = Lark.open_from_package(
+    'lark',
+    'python.lark',
+    ['grammars'],
+    parser='lalr',
+    postlex=PythonIndenter(),
+    start='file_input',
+    maybe_placeholders=False
+)
 
 SPACE_AFTER = set(',+-*/~@<>="|:')
 SPACE_BEFORE = (SPACE_AFTER - set(',:')) | set('\'')
-
 
 def special(sym):
     return Token('SPECIAL', sym.name)
@@ -58,15 +61,6 @@ class PythonReconstructor:
     def reconstruct(self, tree):
         return self._recons.reconstruct(tree, postproc)
 
-kwargs = dict(postlex=PythonIndenter(), start='file_input', maybe_placeholders=False)
-parser = Lark(open("pyx.lark"), parser='lalr', **kwargs)
-
-with open("example.pyx", "r") as f:
-    code = f.read()
-
-tree = parser.parse(code)
-
-from lark.visitors import Transformer
 
 class PyxToPy(Transformer):
     def pyx(self, args):
@@ -100,8 +94,6 @@ class PyxToPy(Transformer):
             ],
         )
 
-
-    
     def pyx_tag(self, args):
         return Tree(Token("RULE", "string"), [Token("STRING", f"'{args[0].value}'")])
     
@@ -112,13 +104,8 @@ class PyxToPy(Transformer):
                 Token("RULE", "key_value"),
                 [
                     Tree(
-                        "var",
-                        [
-                            Tree(
-                                Token("RULE", "name"),
-                                [Token("NAME", key)],
-                            )
-                        ],
+                        Token("RULE", "string"),
+                        [Token("STRING", f"'{key}'")]
                     ),
                     Tree("const_true", []),
                 ],
@@ -128,13 +115,8 @@ class PyxToPy(Transformer):
                 Token("RULE", "key_value"),
                 [
                     Tree(
-                        "var",
-                        [
-                            Tree(
-                                Token("RULE", "name"),
-                                [Token("NAME", key)],
-                            )
-                        ],
+                        Token("RULE", "string"),
+                        [Token("STRING", f"'{key}'")]
                     ),
                     args[1].children[0],
                 ],
@@ -144,13 +126,8 @@ class PyxToPy(Transformer):
                 Token("RULE", "key_value"),
                 [
                     Tree(
-                        "var",
-                        [
-                            Tree(
-                                Token("RULE", "name"),
-                                [Token("NAME", key)],
-                            )
-                        ],
+                        Token("RULE", "string"),
+                        [Token("STRING", f"'{key}'")]
                     ),
                     Tree(
                         Token("RULE", "string"),
@@ -166,9 +143,20 @@ class PyxToPy(Transformer):
         )
     
     def pyx_text(self, args):
+        str_value = ''.join(args)
+        # Escape as html string
+        str_value = str_value.replace('\\', '\\\\')
+        str_value = str_value.replace('"', '\\"')
+        str_value = str_value.replace("'", "\\'")
+        str_value = str_value.replace('\n', '\\n')
+        str_value = str_value.replace('\r', '\\r')
+        str_value = str_value.replace('\t', '\\t')
+        str_value = str_value.replace('\b', '\\b')
+        str_value = str_value.replace('\f', '\\f')
+
         return Tree(
             Token("RULE", "string"),
-            [Token("STRING", f"'{args[0].value}'")],
+            [Token("STRING", f"'{str_value}'")]
         )
     
     def pyx_child(self, args):
@@ -177,12 +165,55 @@ class PyxToPy(Transformer):
     def pyx_child_python_expr(self, args):
         return args[0]
 
+import os
+current_path = os.path.dirname(os.path.abspath(__file__))
+pyx_lark_path = os.path.join(current_path, "pyx.lark")
 
+kwargs = dict(postlex=PythonIndenter(), start='file_input', maybe_placeholders=False)
+pyx_parser = Lark(open(pyx_lark_path, "r"), parser='lalr', **kwargs)
 
 pyx_to_py = PyxToPy()
-tree = pyx_to_py.transform(tree)
+py3_reconstructor = PythonReconstructor(py3_parser)
 
-# Rebuild code
-code = PythonReconstructor(python_parser3).reconstruct(tree)
-print(code)
+
+def transpile_string(code):
+    pyx_tree = pyx_parser.parse(code)
+    py3_tree = pyx_to_py.transform(pyx_tree)
+    code = py3_reconstructor.reconstruct(py3_tree)
+    return code
+
+
+import os
+import argparse
+
+def transpile_path():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("path", nargs='?', type=str, help="path to transpile", default=".")
+    args = parser.parse_args()
+    
+    pyx_files = []
+    if os.path.isfile(args.path):
+        if args.path.endswith(".pyx"):
+            pyx_files.append(args.path)
+    elif os.path.isdir(args.path):
+        for root, dirs, files in os.walk(args.path):
+            for file in files:
+                if file.endswith(".pyx"):
+                    pyx_files.append(os.path.join(root, file))
+
+    filecount_format_length = len(str(len(pyx_files)))
+
+    for i, pyx_file in enumerate(pyx_files):
+        idx = f"[{i+1:>{filecount_format_length}}/{len(pyx_files)}]"
+        print(f"{idx} Transpiling {pyx_file} ...", end=" ")
+        with open(pyx_file, "r") as f:
+            code = f.read()
+        
+        transpiled_code = transpile_string(code)
+        
+        py_file = pyx_file[:-4] + ".x.py"
+        with open(py_file, "w") as f:
+            f.write(transpiled_code)
+        print(f"Done. Transpiled code is saved at {py_file}")
+
 
