@@ -104,13 +104,8 @@ class PyxToPy(Transformer):
                 Token("RULE", "key_value"),
                 [
                     Tree(
-                        "var",
-                        [
-                            Tree(
-                                Token("RULE", "name"),
-                                [Token("NAME", key)],
-                            )
-                        ],
+                        Token("RULE", "string"),
+                        [Token("STRING", f"'{key}'")]
                     ),
                     Tree("const_true", []),
                 ],
@@ -120,13 +115,8 @@ class PyxToPy(Transformer):
                 Token("RULE", "key_value"),
                 [
                     Tree(
-                        "var",
-                        [
-                            Tree(
-                                Token("RULE", "name"),
-                                [Token("NAME", key)],
-                            )
-                        ],
+                        Token("RULE", "string"),
+                        [Token("STRING", f"'{key}'")]
                     ),
                     args[1].children[0],
                 ],
@@ -136,13 +126,8 @@ class PyxToPy(Transformer):
                 Token("RULE", "key_value"),
                 [
                     Tree(
-                        "var",
-                        [
-                            Tree(
-                                Token("RULE", "name"),
-                                [Token("NAME", key)],
-                            )
-                        ],
+                        Token("RULE", "string"),
+                        [Token("STRING", f"'{key}'")]
                     ),
                     Tree(
                         Token("RULE", "string"),
@@ -204,7 +189,7 @@ for pyx_file in pyx_files:
     
     transpiled_code = transpile_string(code)
     
-    py_file = pyx_file[:-4] + ".py"
+    py_file = pyx_file[:-4] + ".x.py"
     with open(py_file, "w") as f:
         f.write(transpiled_code)
 
