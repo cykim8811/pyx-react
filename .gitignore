@@ -4,6 +4,10 @@ src/pyx/assets/pyx.js
 tests/public/index.html
 tests/public/pyx.js
 tests/public/favicon.ico
+transpiler/public/index.html
+transpiler/public/favicon.ico
 build/
 dist/
+
+**/*.x.py
 
