@@ -143,9 +143,21 @@ class PyxToPy(Transformer):
         )
     
     def pyx_text(self, args):
+        print(args)
+        str_value = ''.join(args)
+        # Escape as html string
+        str_value = str_value.replace('\\', '\\\\')
+        str_value = str_value.replace('"', '\\"')
+        str_value = str_value.replace("'", "\\'")
+        str_value = str_value.replace('\n', '\\n')
+        str_value = str_value.replace('\r', '\\r')
+        str_value = str_value.replace('\t', '\\t')
+        str_value = str_value.replace('\b', '\\b')
+        str_value = str_value.replace('\f', '\\f')
+
         return Tree(
             Token("RULE", "string"),
-            [Token("STRING", f"'{args[0].value}'")],
+            [Token("STRING", f"'{str_value}'")]
         )
     
     def pyx_child(self, args):
@@ -165,14 +177,10 @@ py3_reconstructor = PythonReconstructor(py3_parser)
 def transpile_string(code):
     pyx_tree = pyx_parser.parse(code)
     py3_tree = pyx_to_py.transform(pyx_tree)
+    print(py3_tree.pretty())
     code = py3_reconstructor.reconstruct(py3_tree)
     return code
 
-# with open("example.pyx", "r") as f:
-#     code = f.read()
-
-# transpiled_code = transpile_string(code)
-# print(transpiled_code)
 
 import os
 

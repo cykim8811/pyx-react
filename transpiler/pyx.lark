@@ -169,7 +169,6 @@ assign_expr: name ":=" test
 star_expr: "*" expr
 
 ?expr: or_expr
-     | pyx_expr
 ?or_expr: xor_expr ("|" xor_expr)*
 ?xor_expr: and_expr ("^" and_expr)*
 ?and_expr: shift_expr ("&" shift_expr)*
@@ -188,7 +187,7 @@ star_expr: "*" expr
 ?pyx_children: pyx_child*         -> pyx_children
 ?pyx_child: (pyx_text | pyx_child_python_expr | pyx_expr)   -> pyx_child
 ?pyx_child_python_expr: "{" _exprlist "}"    -> pyx_child_python_expr
-?pyx_text: /[^<{}]+/     -> pyx_text
+?pyx_text: /.+?(?=<)/s    -> pyx_text
 
 
 !_unary_op: "+"|"-"|"~"
@@ -203,7 +202,8 @@ star_expr: "*" expr
 ?await_expr: AWAIT? atom_expr
 AWAIT: "await"
 
-?atom_expr: atom_expr "(" [arguments] ")"      -> funccall
+?atom_expr: pyx_expr
+          | atom_expr "(" [arguments] ")"      -> funccall
           | atom_expr "[" subscriptlist "]"  -> getitem
           | atom_expr "." name               -> getattr
           | atom
