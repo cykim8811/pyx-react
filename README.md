@@ -30,6 +30,7 @@ To install vscode extension, search for `pyx-react` in vscode extension marketpl
 ## Usage
 Here's a simple example of how to use PyX Framework:
 
+- Create a .pyx file
 ```python
 
 from pyx import createElement, App
@@ -43,19 +44,12 @@ class Counter:
             self.count += 1
 
     def __render__(self, user):
-        return createElement('div', None,
-            createElement('div', None, f'count: {self.count}'),
-            createElement('button', {'onClick': self.increment}, 'Increment')
+        return (
+            <div>
+                <div>count: {self.count}</div>
+                <button onClick={self.increment}>Increment</button>
+            </div>
         )
-
-#    JSX-like syntax (Not supported yet)
-#    def __render__(self, user):
-#        return (
-#            <div>
-#                <div>count: {self.count}</div>
-#                <button onClick={self.increment}>Increment</button>
-#            </div>
-#        )
 
 
 app = App(Counter())
@@ -63,6 +57,20 @@ app.run(host='0.0.0.0', port=8080)
 
 
 ```
+
+- Run pyx transpiler
+
+```bash
+pyx file.pyx
+```
+
+- Run transpiled .py file
+
+```bash
+python3 file.x.py
+```
+
+
 ### Result
 ![result](https://raw.githubusercontent.com/cykim8811/pyx-react/main/assets/screenshot_1.gif)
 
