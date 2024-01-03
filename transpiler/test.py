@@ -1,95 +1,63 @@
-from parsimonious.grammar import Grammar
 
-# General grammatical elements and rules:
-#
-# * Strings with double quotes (") denote SOFT KEYWORDS
-# * Strings with single quotes (') denote KEYWORDS
-# * Upper case names (NAME) denote tokens in the Grammar/Tokens file
-# * Rule names starting with "invalid_" are used for specialized syntax errors
-#     - These rules are NOT used in the first pass of the parser.
-#     - Only if the first pass fails to parse, a second pass including the invalid
-#       rules will be executed.
-#     - If the parser fails in the second phase with a generic syntax error, the
-#       location of the generic failure of the first pass will be used (this avoids
-#       reporting incorrect locations due to the invalid rules).
-#     - The order of the alternatives involving invalid rules matter
-#       (like any rule in PEG).
-#
-# Grammar Syntax (see PEP 617 for more information):
-#
-# rule_name: expression
-#   Optionally, a type can be included right after the rule name, which
-#   specifies the return type of the C or Python function corresponding to the
-#   rule:
-# rule_name[return_type]: expression
-#   If the return type is omitted, then a void * is returned in C and an Any in
-#   Python.
-# e1 e2
-#   Match e1, then match e2.
-# e1 | e2
-#   Match e1 or e2.
-#   The first alternative can also appear on the line after the rule name for
-#   formatting purposes. In that case, a | must be used before the first
-#   alternative, like so:
-#       rule_name[return_type]:
-#            | first_alt
-#            | second_alt
-# ( e )
-#   Match e (allows also to use other operators in the group like '(e)*')
-# [ e ] or e?
-#   Optionally match e.
-# e*
-#   Match zero or more occurrences of e.
-# e+
-#   Match one or more occurrences of e.
-# s.e+
-#   Match one or more occurrences of e, separated by s. The generated parse tree
-#   does not include the separator. This is otherwise identical to (e (s e)*).
-# &e
-#   Succeed if e can be parsed, without consuming any input.
-# !e
-#   Fail if e can be parsed, without consuming any input.
-# ~
-#   Commit to the current alternative, even if it fails to parse.
-#
 
-peg_grammar = Grammar(r"""
-    file = whitespace? (rule / comment)* whitespace?
+from lark import Lark
 
-    comment = "#" ~"[^\n]*" newline?
+l = Lark(r'''
+?start: (pyx | _code | _WS)*
 
-    rule = rule_name whitespace? ":" whitespace? expression whitespace? newline?
+pyx.1:
+    | pyx_tag_start pyx_tag_end
+    | pyx_tag_start pyx_body? pyx_tag_end
+    | pyx_tag_self_closing
 
-    rule_name = ~"[a-zA-Z_][a-zA-Z_0-9]*"
+pyx_tag_start: "<" pyx_tag_name pyx_attrs? ">"
 
-    expression = sequence (whitespace? "/" whitespace? sequence)*
+pyx_tag_end: "</" pyx_tag_name ">"
 
-    sequence = prefix*
+pyx_tag_self_closing: "<" pyx_tag_name pyx_attrs? "/>"
 
-    prefix = ("&" / "!" / "~")? suffix
+pyx_tag_name: /[a-zA-Z_][a-zA-Z0-9_\-]*/
 
-    suffix = primary ("*" / "+" / "?")?
+pyx_attrs: pyx_attr+
 
-    primary = rule_name / string / ("(" whitespace? expression whitespace? ")")
+pyx_attr: pyx_attr_name "=" pyx_attr_value
 
-    string = "\"" (~"\"" / "\\\"")* "\""
+pyx_attr_name: /[a-zA-Z_][a-zA-Z0-9_\-]*/
 
-    whitespace = ~"\s+"
+pyx_attr_value: pyx_attr_value_string | pyx_attr_value_code
 
-    newline = ~"[\r\n]+"
-"""
+pyx_attr_value_string: /"[^"]*"/ | /'[^']*'/
 
-)
+pyx_attr_value_code: "{" pyx_attr_value_code_body "}"
 
-# 예제 사용
-example_peg = """
-rule: expression
-# comment
+pyx_attr_value_code_body: /[^}]+/   # TODO: allow nested braces
 
-# another comment
-    
-"""
+pyx_body: (pyx | _code | _WS)+
 
-parsed = peg_grammar.parse(example_peg)
-print(parsed)
+_code.0: /./
+
+_WS: /[ \t\n\r]+/
+
+''')
+
+res = l.parse("""
+if a<b:
+    print('c')
+c = <pa><he>asdf</he></pa>
+""")
+
+from pyx import App, createElement
+
+import lark
+
+def tree_render(self, user):
+    return createElement('pre', {}, self.pretty())
+
+def token_render(self, user):
+    return createElement('span', {}, str(self))
+
+lark.tree.Tree.__render__ = tree_render
+
+app = App(res)
+app.run(host='0.0.0.0', port=7002)
 
