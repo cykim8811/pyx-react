@@ -1,186 +1,144 @@
 
+
 from lark import Lark
+from lark.tree import Tree
 
-from lark.indenter import PythonIndenter
-from lark import Token, Lark, Tree
-from lark.reconstruct import Reconstructor
-from lark.visitors import Transformer
+l = Lark(r"""
+start: _code
+_code: (pyx _code) | (/./ _code) | _END
 
-py3_parser = Lark.open_from_package(
-    'lark',
-    'python.lark',
-    ['grammars'],
-    parser='lalr',
-    postlex=PythonIndenter(),
-    start='file_input',
-    maybe_placeholders=False
-)
+pyx_code: _pyx_code
 
-SPACE_AFTER = set(',+-*/~@<>="|:')
-SPACE_BEFORE = (SPACE_AFTER - set(',:')) | set('\'')
+_pyx_code:
+    | _python_string _pyx_code
+    | _text_not_braces _pyx_code
 
-def special(sym):
-    return Token('SPECIAL', sym.name)
+_text_not_braces: /[^{}]/
 
-def postproc(items):
-    stack = ['\n']
-    actions = []
-    last_was_whitespace = True
-    for item in items:
-        if isinstance(item, Token) and item.type == 'SPECIAL':
-            actions.append(item.value)
-        else:
-            if actions:
-                assert actions[0] == '_NEWLINE' and '_NEWLINE' not in actions[1:], actions
+pyx: pyx_open
 
-                for a in actions[1:]:
-                    if a == '_INDENT':
-                        stack.append(stack[-1] + ' ' * 4)
+pyx_open: (/</ pyx_tag_name pyx_attrs* />/ body)
+
+pyx_tag_name: NAME
+
+pyx_attrs: WS? pyx_attr_name /=/ pyx_attr_value
+
+pyx_attr_value:
+    | string
+    | "{" pyx_code "}"
+
+pyx_attr_name: NAME
+
+body: _body
+
+_body:
+    | pyx _body
+    | body_value _body
+    | pyx_close
+
+body_value:
+    | "{" pyx_code "}"
+    | pyx_text
+
+pyx_close: /<\// NAME />/
+pyx_text: /[^<{]+/
+
+string:
+    | /f?"(?:[^"\\]|\\.)*"/
+    | /f?'(?:[^'\\]|\\.)*'/
+
+NAME: /[a-zA-Z_][a-zA-Z0-9_\-]*/
+
+_END: "$END"
+
+WS: (/\$TAB/ | /\$NL/ | /\$SPACE/)
+
+_python_string:
+    | string
+    | python_multiline_string
+
+python_multiline_string:
+    | /f?\'\'\'(?:[^'\\]|\\.)*\'\'\'/
+    | /f?\"\"\"(?:[^"\\]|\\.)*\"\"\"/
+
+""")
+
+def preprocess(s):
+    s = s.replace("\n", "$NL")
+    s = s.replace("\r", "")
+    s = s.replace("\t", "$TAB")
+    s = s.replace(" ", "$SPACE")
+    s += "$END"
+    return s
+
+def reconstruct(node):
+    return postprocess(_reconstruct(node))
+
+def _reconstruct(node):
+    if type(node) is Tree and node.data == "pyx":
+        return visit_pyx(node)
+    if isinstance(node, Tree):
+        return "".join(_reconstruct(c) for c in node.children)
+    else:
+        return str(node)
+
+def visit_pyx(node):
+    tag_name = None
+    for t in node.find_data("pyx_tag_name"):
+        tag_name = _reconstruct(t)
+    return f"pyx.createElement(\"{tag_name}\", {visit_pyx_attrs(node)}, {visit_body(node)})"
+
+def visit_pyx_attrs(node):
+    attrs = []
+    for t in node.find_data("pyx_attrs"):
+        attr_name = f'"{_reconstruct(next(t.find_data("pyx_attr_name")))}"'
+        attr_value = _reconstruct(next(t.find_data("pyx_attr_value")))
+        attrs.append(f"{attr_name}: {attr_value}")
+        
+    return "{" + ", ".join(attrs) + "}"
+
+def visit_body(node):
+    return "[" + ", ".join(_visit_body(node)) + "]"
+
+def _visit_body(node):
+    body = []
+    for t in node.children:
+        if isinstance(t, Tree):
+            if t.data == "body":
+                for child in t.children:
+                    if isinstance(child, Tree):
+                        if child.data == "pyx":
+                            body.append(visit_pyx(child))
+                        elif child.data == "body_value":
+                            body.append(visit_body_value(child))
+                        elif child.data == "pyx_close":
+                            pass
+                        else:
+                            raise Exception(f"Unknown body child {child.data}")
                     else:
-                        assert a == '_DEDENT'
-                        stack.pop()
-                actions.clear()
-                yield stack[-1]
-                last_was_whitespace = True
-            if not last_was_whitespace:
-                if item[0] in SPACE_BEFORE:
-                    yield ' '
-            yield item
-            last_was_whitespace = item[-1].isspace()
-            if not last_was_whitespace:
-                if item[-1] in SPACE_AFTER:
-                    yield ' '
-                    last_was_whitespace = True
-    yield "\n"
+                        body.append(_reconstruct(child))
+            else:
+                body += _visit_body(t)
+    return body
+
+def visit_body_value(node):
+    for t in node.find_data("pyx_text"):
+        rec = _reconstruct(t)
+        rec = rec.replace("$NL", "\\n")
+        return f"\"{rec}\""
+    for t in node.find_data("pyx_code"):
+        return _reconstruct(t)
+
+def postprocess(s):
+    s = s.replace("$NL", "\n")
+    s = s.replace("$TAB", "\t")
+    s = s.replace("$SPACE", " ")
+    s = s.replace("$END", "")
+    return s
 
 
-class PythonReconstructor:
-    def __init__(self, parser):
-        self._recons = Reconstructor(parser, {'_NEWLINE': special, '_DEDENT': special, '_INDENT': special})
-
-    def reconstruct(self, tree):
-        return self._recons.reconstruct(tree, postproc)
-
-
-class PyxToPy(Transformer):
-    def pyx(self, args):
-        tree_tag = args[0]
-        tree_attr_dict = args[1]
-        tree_child = args[2].children
-        
-        return Tree(
-            "funccall",
-            [
-                Tree(
-                    "getattr",
-                    [
-                        Tree(
-                            "var",
-                            [
-                                Tree(Token("RULE", "name"), [Token("NAME", "pyx")])
-                            ],
-                        ),
-                        Tree(Token("RULE", "name"), [Token("NAME", "createElement")]),
-                    ],
-                ),
-                Tree(
-                    Token("RULE", "arguments"),
-                    [
-                        tree_tag,
-                        tree_attr_dict,
-                        *tree_child,
-                    ],
-                ),
-            ],
-        )
-
-    def pyx_tag(self, args):
-        return Tree(Token("RULE", "string"), [Token("STRING", f"'{args[0].value}'")])
-    
-    def pyx_attr(self, args):
-        key = args[0].value
-        if len(args) == 1:
-            return Tree(
-                Token("RULE", "key_value"),
-                [
-                    Tree(
-                        Token("RULE", "string"),
-                        [Token("STRING", f"'{key}'")]
-                    ),
-                    Tree("const_true", []),
-                ],
-            )
-        elif isinstance(args[1], Tree):
-            return Tree(
-                Token("RULE", "key_value"),
-                [
-                    Tree(
-                        Token("RULE", "string"),
-                        [Token("STRING", f"'{key}'")]
-                    ),
-                    args[1].children[0],
-                ],
-            )
-        else:
-            return Tree(
-                Token("RULE", "key_value"),
-                [
-                    Tree(
-                        Token("RULE", "string"),
-                        [Token("STRING", f"'{key}'")]
-                    ),
-                    Tree(
-                        Token("RULE", "string"),
-                        [args[1]],
-                    ),
-                ],
-            )
-        
-    def pyx_attr_list(self, args):
-        return Tree(
-            "dict",
-            args
-        )
-    
-    def pyx_text(self, args):
-        str_value = ''.join(args)
-        # Escape as html string
-        str_value = str_value.replace('\\', '\\\\')
-        str_value = str_value.replace('"', '\\"')
-        str_value = str_value.replace("'", "\\'")
-        str_value = str_value.replace('\n', '\\n')
-        str_value = str_value.replace('\r', '\\r')
-        str_value = str_value.replace('\t', '\\t')
-        str_value = str_value.replace('\b', '\\b')
-        str_value = str_value.replace('\f', '\\f')
-
-        return Tree(
-            Token("RULE", "string"),
-            [Token("STRING", f"'{str_value}'")]
-        )
-    
-    def pyx_child(self, args):
-        return args[0]
-    
-    def pyx_child_python_expr(self, args):
-        return args[0]
-
-import os
-current_path = os.path.dirname(os.path.abspath(__file__))
-pyx_lark_path = os.path.join(current_path, "pyx.lark")
-
-kwargs = dict(postlex=PythonIndenter(), start='file_input', maybe_placeholders=False)
-pyx_parser = Lark(open(pyx_lark_path, "r"), parser='lalr', **kwargs)
-
-pyx_to_py = PyxToPy()
-py3_reconstructor = PythonReconstructor(py3_parser)
-
-
-def transpile_string(code):
-    pyx_tree = pyx_parser.parse(code)
-    py3_tree = pyx_to_py.transform(pyx_tree)
-    code = py3_reconstructor.reconstruct(py3_tree)
-    return code
+def transpile_string(s):
+    return reconstruct(l.parse(preprocess(s)))
 
 
 import os
