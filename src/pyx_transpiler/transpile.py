@@ -5,7 +5,7 @@ from lark.tree import Tree
 
 l = Lark(r"""
 start: _code
-_code: (pyx _code) | (/./ _code) | _END
+_code: (pyx _code) | (/[^<$]+/ _code) | (/./ _code) | _END
 
 pyx_code: _pyx_code
 
@@ -14,7 +14,10 @@ _pyx_code:
     | pyx _pyx_code
     | /{/ _pyx_code /}/ _pyx_code
     | _text_before_braces
-    | _text_not_braces _pyx_code
+    | _text_multiple _pyx_code  # Might be unstable
+    # | _text_not_braces _pyx_code
+
+_text_multiple: /[^{}<]+/
 
 _text_not_braces: /[^{}]/
 
