@@ -11,13 +11,20 @@ pyx_code: _pyx_code
 
 _pyx_code:
     | _python_string _pyx_code
+    | pyx _pyx_code
+    | /{/ _pyx_code /}/ _pyx_code
+    | _text_before_braces
     | _text_not_braces _pyx_code
 
 _text_not_braces: /[^{}]/
 
+_text_before_braces: /[^}](?!})/
+
 pyx: pyx_open
 
-pyx_open: (/</ pyx_tag_name pyx_attrs* />/ body)
+pyx_open:
+    | (/</ pyx_tag_name pyx_attrs* />/ body pyx_close)
+    | (/</ pyx_tag_name pyx_attrs* /\/>/)
 
 pyx_tag_name: NAME
 
@@ -34,7 +41,6 @@ body: _body
 _body:
     | pyx _body
     | body_value _body
-    | pyx_close
 
 body_value:
     | "{" pyx_code "}"
@@ -122,12 +128,17 @@ def _visit_body(node):
     return body
 
 def visit_body_value(node):
-    for t in node.find_data("pyx_text"):
-        rec = _reconstruct(t)
+    if node.children[0].data == "pyx_code":
+        return visit_pyx_code(node.children[0])
+    elif node.children[0].data == "pyx_text":
+        rec = _reconstruct(node.children[0])
         rec = rec.replace("$NL", "\\n")
         return f"\"{rec}\""
-    for t in node.find_data("pyx_code"):
-        return _reconstruct(t)
+    else:
+        raise Exception(f"Unknown body_value child {node.children[0].data}")
+
+def visit_pyx_code(node):
+    return _reconstruct(node)
 
 def postprocess(s):
     s = s.replace("$NL", "\n")
@@ -138,7 +149,9 @@ def postprocess(s):
 
 
 def transpile_string(s):
-    return reconstruct(l.parse(preprocess(s)))
+    tree = l.parse(preprocess(s))
+    print(tree.pretty())
+    return reconstruct(tree)
 
 
 import os
