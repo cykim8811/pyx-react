@@ -42,8 +42,8 @@ pyx_attr_name: NAME
 body: _body
 
 _body:
-    | pyx _body
-    | body_value _body
+    | indent? pyx _body
+    | indent? body_value _body
 
 body_value:
     | "{" pyx_code "}"
@@ -61,6 +61,7 @@ NAME: /[a-zA-Z_][a-zA-Z0-9_\-]*/
 _END: "$END"
 
 WS: (/\$TAB/ | /\$NL/ | /\$SPACE/)
+indent: WS+
 
 _python_string:
     | string
@@ -95,6 +96,8 @@ def visit_pyx(node):
     tag_name = None
     for t in node.find_data("pyx_tag_name"):
         tag_name = _reconstruct(t)
+    if tag_name is None:
+        return ""
     return f"pyx.createElement(\"{tag_name}\", {visit_pyx_attrs(node)}, {visit_body(node)})"
 
 def visit_pyx_attrs(node):
@@ -107,25 +110,30 @@ def visit_pyx_attrs(node):
     return "{" + ", ".join(attrs) + "}"
 
 def visit_body(node):
-    return "[" + ", ".join(_visit_body(node)) + "]"
+    return ", ".join(_visit_body(node))
 
 def _visit_body(node):
     body = []
+    indent = ""
     for t in node.children:
         if isinstance(t, Tree):
             if t.data == "body":
                 for child in t.children:
                     if isinstance(child, Tree):
                         if child.data == "pyx":
-                            body.append(visit_pyx(child))
+                            pyx_res = visit_pyx(child)
+                            if pyx_res:
+                                body.append(indent + pyx_res)
                         elif child.data == "body_value":
-                            body.append(visit_body_value(child))
+                            body.append(indent + visit_body_value(child))
                         elif child.data == "pyx_close":
                             pass
+                        elif child.data == "indent":
+                            indent = _reconstruct(child)
                         else:
                             raise Exception(f"Unknown body child {child.data}")
                     else:
-                        body.append(_reconstruct(child))
+                        body.append(indent + _reconstruct(child))
             else:
                 body += _visit_body(t)
     return body
@@ -153,16 +161,15 @@ def postprocess(s):
 
 def transpile_string(s):
     tree = l.parse(preprocess(s))
-    print(tree.pretty())
-    return reconstruct(tree)
+    return "import pyx\n" + reconstruct(tree)
 
 
 import os
 import argparse
-
 def transpile_path():
     parser = argparse.ArgumentParser()
     parser.add_argument("path", nargs='?', type=str, help="path to transpile", default=".")
+    parser.add_argument("-w", "--watch", action="store_true", help="watch for changes")
     args = parser.parse_args()
     
     pyx_files = []
@@ -177,17 +184,39 @@ def transpile_path():
 
     filecount_format_length = len(str(len(pyx_files)))
 
-    for i, pyx_file in enumerate(pyx_files):
-        idx = f"[{i+1:>{filecount_format_length}}/{len(pyx_files)}]"
-        print(f"{idx} Transpiling {pyx_file} ...", end=" ")
-        with open(pyx_file, "r") as f:
-            code = f.read()
-        
-        transpiled_code = transpile_string(code)
-        
-        py_file = pyx_file[:-4] + ".x.py"
-        with open(py_file, "w") as f:
-            f.write(transpiled_code)
-        print(f"Done. Transpiled code is saved at {py_file}")
+    def run_transpile(specify_file=None):
+        for i, pyx_file in enumerate(pyx_files):
+            if specify_file and specify_file != pyx_file: continue
+            idx = f"[{i+1:>{filecount_format_length}}/{len(pyx_files)}]"
+            print(f"{idx} Transpiling {pyx_file} ...", end=" ")
+            with open(pyx_file, "r") as f:
+                code = f.read()
+            
+            transpiled_code = transpile_string(code)
+            
+            py_file = pyx_file[:-4] + ".x.py"
+            with open(py_file, "w") as f:
+                f.write(transpiled_code)
+            print(f"Done. Transpiled code is saved at {py_file}")
+
+    if not args.watch:
+        run_transpile()
+    else:
+        from watchdog.observers import Observer
+        from watchdog.events import FileSystemEventHandler
+        class Handler(FileSystemEventHandler):
+            def on_modified(self, event):
+                if event.src_path in pyx_files:
+                    run_transpile(event.src_path)
+        observer = Observer()
+        observer.schedule(Handler(), args.path, recursive=True)
+        observer.start()
+        print(f"Watching for changes in {args.path} ...")
+        try:
+            while True: pass
+        except KeyboardInterrupt:
+            observer.stop()
+        observer.join()
+
 
 

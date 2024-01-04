@@ -6,7 +6,8 @@ class Counter:
         self.count = 0
 
     async def increment(self, event):
-        if await event.altKey:
+        k = await event.altKey
+        if k:
             self.count -= 1
         else:
             self.count += 1
