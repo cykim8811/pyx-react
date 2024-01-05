@@ -125,7 +125,7 @@ import sys
 
 class InterpreterWrapper:
     def __init__(self):
-        self.value = ''
+        self.value = "data = [1, \"Hello, World!\", {'a': 3, 'b': 4}]\n"
         self.inputValue = ''
         self.interpreter = code.InteractiveConsole(globals())
     
