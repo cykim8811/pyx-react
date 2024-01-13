@@ -9,6 +9,8 @@ import tornado.gen
 from .utils.hashID import hashObj
 from .server import Server
 
+import PIL.Image
+
 
 class SetterListener:
     def __init__(self):
@@ -144,8 +146,12 @@ class ResourceManager:
                 total_result.update(self.update(child))
             if hasattr(child, '__call__'):
                 self.resources[childID].updateHandler.append(lambda: self.user.forceUpdate(renderable))
+            if isinstance(child, PIL.Image.Image):
+                self.user.app.storage.store(childID, child)
         for childID in removed_children:
             child = removed_children[childID]
+            if isinstance(child, PIL.Image.Image):
+                self.user.app.storage.remove(childID)
             self.decrementRefCount(child)
         return total_result
 
@@ -191,6 +197,9 @@ class ResourceManager:
             return tuple(self.__convert(child) for child in element)
         elif type(element) in [str, int, float, bool]:
             return str(element)
+        elif isinstance(element, PIL.Image.Image):
+            self.__new_children[hashObj(element)] = element
+            return "images/" + hashObj(element) + ".png"
         else:
             return element
     
@@ -311,6 +320,41 @@ class JSObject:
                 print("Force update")
         self._listeners.add(listener)
 
+class DataStorage:
+    def __init__(self):
+        self.data = {}
+        self.refCount = {}
+
+    def store(self, id, data):
+        if id not in self.data:
+            self.data[id] = data
+            self.refCount[id] = 0
+        self.refCount[id] += 1
+
+    def remove(self, id):
+        self.refCount[id] -= 1
+        if self.refCount[id] == 0:
+            del self.data[id]
+            del self.refCount[id]
+
+import io
+
+class ImageFileHandler(tornado.web.RequestHandler):
+    def initialize(self, app):
+        self.app = app
+    
+    def get(self, path):
+        path = path.split('.')[0]
+        if path not in self.app.storage.data:
+            self.set_status(404)
+            return
+        image = self.app.storage.data[path]
+        image_bytes = io.BytesIO()
+        image.save(image_bytes, format='PNG')
+        image_bytes.seek(0)
+        self.set_header('Content-Type', 'image/png')
+        self.write(image_bytes.read())
+
 class App:
     def __init__(self, component=None):
         if component is not None:
@@ -320,6 +364,8 @@ class App:
         self.__init_server()
 
         self.users = {}
+
+        self.storage = DataStorage()
     
     def __init_server(self):
         self.__init_files()
@@ -382,6 +428,8 @@ class App:
             result = await callableObj(*[argObj[i] for i in range(argCount)])
 
             return result
+
+        self.server.routes.append((r"/images/(.*)", ImageFileHandler, {"app": self}))
 
 
     def run(self, host=None, port=None, verbose=True):

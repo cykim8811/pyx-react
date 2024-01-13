@@ -133,6 +133,9 @@ export class PyXApp{
     }
     
     convert(node: any): any {
+        if (node === null) {
+            return null;
+        }
         if (Array.isArray(node)) {
             return node.map((n: any) => this.convert(n));
         }
@@ -150,7 +153,6 @@ export class PyXApp{
             const stopPropagation = node['stopPropagation'] || false;
             console.log(`Callable ${node['callableId']} has preventDefault=${prevendDefault} and stopPropagation=${stopPropagation}`)
             return (...args: any[]) => {
-                console.log(args[0])
                 if (prevendDefault) { args[0].preventDefault(); }
                 if (stopPropagation) { args[0].stopPropagation(); }
                 (async (...args: any[]) => {
