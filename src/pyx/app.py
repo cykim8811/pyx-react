@@ -6,7 +6,7 @@ import tornado.web
 import tornado.ioloop
 import tornado.gen
 
-from .utils.hashID import hashObj
+from .hashID import hashObj
 from .server import Server
 
 import PIL.Image
