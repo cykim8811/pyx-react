@@ -445,3 +445,6 @@ class App:
     def onDisconnect(self, user):
         pass
 
+def sleep(delay):
+    return tornado.gen.sleep(delay)
+
