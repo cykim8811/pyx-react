@@ -5,5 +5,5 @@ from .createElement import createElement
 
 
 __all__ = ['Server', 'App']
-__version__ = '0.1.2-alpha.0'
+__version__ = '0.1.3'
 
