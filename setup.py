@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name='pyx-react',
-    version='0.1.3',
+    version='0.1.4',
     description='A framework that enables Python objects to be easily rendered on a web server',
     author='Kim Changyeon',
     author_email='cykim8811@snu.ac.kr',
