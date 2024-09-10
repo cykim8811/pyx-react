@@ -21,5 +21,5 @@ class PyX(Starlette):
 
     async def static(self, request):
         return FileResponse(os.path.join(static_dir, request.path_params['file_path']))
-        
+
 

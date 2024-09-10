@@ -1,4 +1,7 @@
 
+import { createElement } from "react";
+import { socket } from "./socket";
+
 function App() {
 
   return (
