@@ -1,8 +1,2 @@
 
-from .server import Server
-from .app import App, sleep
-from .createElement import createElement
-
-
-__all__ = ['Server', 'App', 'sleep']
-__version__ = '0.1.4'
+__version__ = '0.2.0'
