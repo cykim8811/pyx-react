@@ -2,3 +2,4 @@ __pycache__/
 run.sh
 test.py
 *.egg-info/
+src/pyx/static/frontend/
